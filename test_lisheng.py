@@ -184,16 +184,16 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 
 
 if __name__ == '__main__':
-	
-	env = img_env.ImgEnv('mnist', train=True, max_steps=200, channels=2, window=5)
-	num_episodes = 200
+	BATCH_SIZE = 32
+	NUM_STEPS = 50
+	GAMMA = 1 - (1 / 50) # Set to horizon of max episode length
+
+	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=5)
+	num_episodes = 1000
 
 
 	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist')
 	memory = ReplayMemory(10000)
-
-	BATCH_SIZE = 32
-	GAMMA = 0.999
 
 	total_rewards = {}
 	episode_durations = {}
@@ -201,7 +201,7 @@ if __name__ == '__main__':
 		total_reward_i = 0
 		observation = env.reset()
 		curr_label = env.curr_label.item()
-		for t in range(100): # allow 100 steps
+		for t in range(NUM_STEPS):
 			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32), \
 				states=observation, masks=observation[1])
 			action = actionS.numpy()[0][0]

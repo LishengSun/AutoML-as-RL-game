@@ -5,8 +5,6 @@ from gym.spaces import Discrete, Box
 import torchvision.transforms as T
 from torchvision import datasets
 
-from cityscapes import Cityscapes
-
 CITYSCAPE = '/datasets01/cityscapes/112817/gtFine'
 IMG_ENVS = ['mnist', 'cifar10', 'cifar100', 'imagenet']
 
@@ -47,10 +45,6 @@ def get_data_loader(env_id, train=True):
         loader = torch.utils.data.DataLoader(
             dataset('data', train=train, download=True,
                     transform=transform),
-            batch_size=1, shuffle=True, **kwargs)
-    elif env_id in ['cityscapes']:
-        loader = torch.utils.data.DataLoader(
-            Cityscapes(CITYSCAPE, train, transform=transform),
             batch_size=1, shuffle=True, **kwargs)
     return loader
 
@@ -117,10 +111,8 @@ class ImgEnv(object):
         self.num_steps += 1
         done = self.num_steps >= self.max_steps
         reward = -0.1
-        if action[1] == self.curr_label.item():
+        if done and action[1] == self.curr_label.item():
             reward = 1
-        if reward > 0:
-            done = True
         return self.state, reward, done, {}
 
     def get_current_obs(self):
