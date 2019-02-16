@@ -130,7 +130,7 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 
 
 	non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)), dtype=torch.uint8)
+                                          batch.next_state)), dtype=torch.uint8).to(device)
 
 	non_final_next_states = torch.stack([s for s in batch.next_state \
     	if s is not None])
@@ -159,38 +159,36 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 	curr_label_batch = torch.cat(batch.curr_label)
 	loss_clf = F.nll_loss(clf_proba_batch, curr_label_batch)
 
+	total_loss = loss_dist + loss_clf
 	optimizer_dist = optim.RMSprop(net.parameters())
 	optimizer_dist.zero_grad()
-	if optimize_clf:
-		loss_dist.backward(retain_graph=True)
-	else:
-		loss_dist.backward()
+	total_loss.backward()
 	for param in net.dist.parameters():
 		param.grad.data.clamp_(-1, 1)
 		# print (param.grad.data)
 	optimizer_dist.step()
 
-	if optimize_clf:
-		
-		optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
-		optimizer_clf.zero_grad()
-		loss_clf.backward()
-		for param in net.dist.parameters():
-			param.grad.data.clamp_(-1, 1)
-		optimizer_clf.step()
+	# if optimize_clf:
+	#
+	# 	optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
+	# 	optimizer_clf.zero_grad()
+	# 	loss_clf.backward()
+	# 	for param in net.dist.parameters():
+	# 		param.grad.data.clamp_(-1, 1)
+	# 	optimizer_clf.step()
 	return loss_clf, loss_dist
 
 
 
 
 if __name__ == '__main__':
-	BATCH_SIZE = 32
-	NUM_STEPS = 50
-	GAMMA = 1 - (1 / 50) # Set to horizon of max episode length
+	BATCH_SIZE = 128
+	NUM_STEPS = 20
+	GAMMA = 1 - (1 / NUM_STEPS) # Set to horizon of max episode length
 
-	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=5)
+	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10)
 	num_episodes = 1000
-
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist')
 	memory = ReplayMemory(10000)
@@ -202,7 +200,8 @@ if __name__ == '__main__':
 		observation = env.reset()
 		curr_label = env.curr_label.item()
 		for t in range(NUM_STEPS):
-			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32), \
+			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(
+				inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32).to(device),
 				states=observation, masks=observation[1])
 			action = actionS.numpy()[0][0]
 			class_pred = actionS.numpy()[0][1]
@@ -210,17 +209,16 @@ if __name__ == '__main__':
 			last_observation = observation
 			observation, reward, done, info = env.step(actionS)
 			total_reward_i = reward + GAMMA*total_reward_i
-			memory.push(torch.from_numpy(last_observation), torch.from_numpy(actionS), \
-				torch.from_numpy(observation), torch.tensor([reward]).float(), torch.tensor([curr_label]))
+			memory.push(
+				torch.from_numpy(last_observation).to(device),
+				torch.from_numpy(actionS).to(device),
+				torch.from_numpy(observation).to(device),
+				torch.tensor([reward]).float().to(device),
+				torch.tensor([curr_label]).to(device))
 			# print ('t = %i: action = %i, class = %i, class_pred = %i, reward = %f'%(t, action, curr_label, class_pred, reward))
 
 			 # train action head every time
-
-			if t % 5 == 0: # train clf head every 5 time steps
-				# print ("=============also train clf====")
-				optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=True)
-			else:
-				optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=False)
+			optimize_myNet(net, curr_label, BATCH_SIZE)
 
 			if done:
 				# print ('Done after %i steps'%(t+1))
@@ -233,7 +231,7 @@ if __name__ == '__main__':
 			total_rewards[curr_label] = [total_reward_i]
 			episode_durations[curr_label] = [t]
 		if curr_label == 0:
-			print ('duration = ', t)
+			print ('Episode ', i_episode, ', duration = ', t)
 			print ('total rewards = ', total_reward_i)
 	plt.title('Class 0')
 	plt.subplot(2, 1, 1)

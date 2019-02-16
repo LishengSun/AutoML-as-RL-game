@@ -110,7 +110,7 @@ class ImgEnv(object):
                 self.curr_img[:, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window]
         self.num_steps += 1
         done = self.num_steps >= self.max_steps
-        reward = -0.1
+        reward = - 1 / self.max_steps
         if done and action[1] == self.curr_label.item():
             reward = 1
         return self.state, reward, done, {}
