@@ -159,26 +159,33 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 	curr_label_batch = torch.cat(batch.curr_label)
 	loss_clf = F.nll_loss(clf_proba_batch, curr_label_batch)
 
+	loss = loss_dist + loss_clf
+
 	optimizer_dist = optim.RMSprop(net.parameters())
 	optimizer_dist.zero_grad()
-	if optimize_clf:
-		loss_dist.backward(retain_graph=True)
-	else:
-		loss_dist.backward()
+	loss.backward()
 	for param in net.dist.parameters():
 		param.grad.data.clamp_(-1, 1)
 		# print (param.grad.data)
 	optimizer_dist.step()
+	# if optimize_clf:
+	# 	loss_dist.backward(retain_graph=True)
+	# else:
+	# 	loss_dist.backward()
+	# for param in net.dist.parameters():
+	# 	param.grad.data.clamp_(-1, 1)
+	# 	# print (param.grad.data)
+	# optimizer_dist.step()
 
-	if optimize_clf:
+	# if optimize_clf:
 		
-		optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
-		optimizer_clf.zero_grad()
-		loss_clf.backward()
-		for param in net.dist.parameters():
-			param.grad.data.clamp_(-1, 1)
-		optimizer_clf.step()
-	return loss_clf, loss_dist
+	# 	optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
+	# 	optimizer_clf.zero_grad()
+	# 	loss_clf.backward()
+	# 	for param in net.dist.parameters():
+	# 		param.grad.data.clamp_(-1, 1)
+	# 	optimizer_clf.step()
+	# return loss_clf, loss_dist
 
 
 
@@ -186,7 +193,7 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 if __name__ == '__main__':
 	
 	env = img_env.ImgEnv('mnist', train=True, max_steps=200, channels=2, window=5)
-	num_episodes = 200
+	num_episodes = 500
 
 
 	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist')
@@ -216,11 +223,11 @@ if __name__ == '__main__':
 
 			 # train action head every time
 
-			if t % 5 == 0: # train clf head every 5 time steps
+			# if t % 5 == 0: # train clf head every 5 time steps
 				# print ("=============also train clf====")
-				optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=True)
-			else:
-				optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=False)
+				# optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=True)
+			# else:
+			optimize_myNet(net, curr_label, BATCH_SIZE, optimize_clf=False)
 
 			if done:
 				# print ('Done after %i steps'%(t+1))
@@ -235,14 +242,16 @@ if __name__ == '__main__':
 		if curr_label == 0:
 			print ('duration = ', t)
 			print ('total rewards = ', total_reward_i)
-	plt.title('Class 0')
+	
 	plt.subplot(2, 1, 1)
+	plt.title('Class 0')
 	plt.xlabel('Episode')
 	plt.ylabel('Episode_Duration')
 	durations_t = torch.tensor(episode_durations[0], dtype=torch.float)
 	plt.plot(durations_t.numpy())
 
 	plt.subplot(2, 1, 2)
+	plt.title('Class 0')
 	plt.xlabel('Episode')
 	plt.ylabel('Rewards')
 	total_rewards_t = torch.tensor(total_rewards[0], dtype=torch.float)
