@@ -19,24 +19,12 @@ from PIL import Image
 
 from random import randint
 import numpy as np
+import logging, argparse
+import os
+import pickle
+import time
 
 
-
-
-
-
-# display_img = (np.reshape(env.curr_img.numpy(), (28, 28)) * 255).astype(np.uint8)
-# img = Image.fromarray(display_img, 'L')
-# # img.save('my.png')
-# img.show()
-
-# im0 = env.curr_img.numpy()
-
-
-# display_img = observation[1,:,:]*255
-# img = Image.fromarray(np.uint8(display_img), 'L')
-# img.save('my_start.png')
-# img.show()
 
 
 class myNet(nn.Module):
@@ -147,7 +135,7 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 	# print (action_batch.shape)
 	state_action_values = Q_values_batch.gather(1, action_batch[:, 0].view(BATCH_SIZE,1))
 	# actual Q values = Q values indexed by sampled action
-	next_state_values = torch.zeros(BATCH_SIZE)
+	next_state_values = torch.zeros(BATCH_SIZE, device=device)
 	
 	_, _, next_Q_values_batch, _, _, _= net.act(inputs=non_final_next_states.float(),states=non_final_next_states, masks=non_final_next_states[1])
 	
@@ -182,70 +170,134 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 
 
 if __name__ == '__main__':
+
+	t0 = time.time()
+	
+	################# set logdir, required by lab GPU setting
+	
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--logdir', type=str, required=True)
+	args = parser.parse_args()
+	assert os.path.exists(args.logdir), "Log directory non existant..."
+	logging.basicConfig(filename=os.path.join(args.logdir, 'logs.txt'),level=logging.DEBUG, \
+		format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', filemode='w')
+
+	############### set result dir to save results and plots
+	curr_dir = os.path.dirname(os.path.abspath(__file__))
+	logging.info('Current dir = %s'%curr_dir)
+	result_dir = os.path.join(curr_dir, 'results')
+	
+
+	if not os.path.exists(result_dir):
+		os.makedirs(result_dir)
+	logging.info('Result dir = %s'%result_dir)
+	if torch.cuda.is_available(): 
+		logging.info(os.environ["CUDA_VISIBLE_DEVICES"])
+	else:
+		logging.info('No GPU AVAILABLE')
+
+    ################## conf net
 	BATCH_SIZE = 128
 	NUM_STEPS = 20
 	GAMMA = 1 - (1 / NUM_STEPS) # Set to horizon of max episode length
 
 	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10)
-	num_episodes = 1000
+	num_episodes = 5000
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist')
+	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist').to(device)
 	memory = ReplayMemory(10000)
 
-	total_rewards = {}
-	episode_durations = {}
+	experiment_info = {} # create a standalone file to summarize all exp info and results
+	experiment_info['name'] = 'digits_check_EndOfEpisode'
+	experiment_info['num_episodes'] = num_episodes
+	experiment_info['NUM_STEPS'] = NUM_STEPS
+	experiment_info['device'] = device.type
+	experiment_info['architecture'] = net.__repr__()
+
+	experiment_info['results'] = {}
+
+
+
+
+
 	for i_episode in range(num_episodes):
+		# print ('episode:', i_episode)
+		experiment_info['results']['episode_%i'%i_episode] = {}
 		total_reward_i = 0
 		observation = env.reset()
-		curr_label = env.curr_label.item()
+		curr_label_i = env.curr_label.item()
+		experiment_info['results']['episode_%i'%i_episode]['curr_label'] = curr_label_i
+		action_trajectory_i = [observation]
+
 		for t in range(NUM_STEPS):
+			# print ('time step:', t)
 			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(
 				inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32).to(device),
 				states=observation, masks=observation[1])
-			action = actionS.numpy()[0][0]
-			class_pred = actionS.numpy()[0][1]
-			actionS = actionS.numpy()[0]
+			if device.type == 'cuda':
+				action = actionS.cpu().numpy()[0][0]
+				class_pred = actionS.cpu().numpy()[0][1]
+				actionS = actionS.cpu().numpy()[0]
+			else:
+				action = actionS.numpy()[0][0]
+				class_pred = actionS.numpy()[0][1]
+				actionS = actionS.numpy()[0]
 			last_observation = observation
 			observation, reward, done, info = env.step(actionS)
+			# print ('done?', done)
+			# print ('reward', reward)
+			action_trajectory_i.append(observation)
 			total_reward_i = reward + GAMMA*total_reward_i
+			# print ('total_reward_i', total_reward_i)
 			memory.push(
 				torch.from_numpy(last_observation).to(device),
 				torch.from_numpy(actionS).to(device),
 				torch.from_numpy(observation).to(device),
 				torch.tensor([reward]).float().to(device),
-				torch.tensor([curr_label]).to(device))
-			# print ('t = %i: action = %i, class = %i, class_pred = %i, reward = %f'%(t, action, curr_label, class_pred, reward))
+				torch.tensor([curr_label_i]).to(device))
 
-			 # train action head every time
-			optimize_myNet(net, curr_label, BATCH_SIZE)
+			optimize_myNet(net, curr_label_i, BATCH_SIZE)
 
 			if done:
 				# print ('Done after %i steps'%(t+1))
 				break
 
-		if curr_label in total_rewards.keys():
-			total_rewards[curr_label].append(total_reward_i)
-			episode_durations[curr_label].append(t)
-		else:
-			total_rewards[curr_label] = [total_reward_i]
-			episode_durations[curr_label] = [t]
-		if curr_label == 0:
-			print ('Episode ', i_episode, ', duration = ', t)
-			print ('total rewards = ', total_reward_i)
+		experiment_info['results']['episode_%i'%i_episode]['action_trajectory']=action_trajectory_i
+		experiment_info['results']['episode_%i'%i_episode]['total_reward']=total_reward_i
+		experiment_info['results']['episode_%i'%i_episode]['episode_duration']=t
+
+		
+	total_run_time = time.time()-t0
+	logging.info('Experiments completed in %f seconds'%total_run_time)
+	experiment_info['Total_Run_Time'] = total_run_time
+
+	with open(os.path.join(result_dir, 'experiment_info_%s.pickle'%experiment_info['name']), 'wb') as handle:
+		pickle.dump(experiment_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+	
+
+	episode_duration_cls0 = []
+	total_reward_cls0 = []
+
+	for epi in range(experiment_info['num_episodes']):
+		# print (experiment_info['results']['episode_%i'%epi]['curr_label'])
+		if experiment_info['results']['episode_%i'%epi]['curr_label'] == 4:
+			episode_duration_cls0.append(experiment_info['results']['episode_%i'%epi]['episode_duration'])
+			total_reward_cls0.append(experiment_info['results']['episode_%i'%epi]['total_reward'])
+
+
 	plt.title('Class 0')
 	plt.subplot(2, 1, 1)
 	plt.xlabel('Episode')
 	plt.ylabel('Episode_Duration')
-	durations_t = torch.tensor(episode_durations[0], dtype=torch.float)
+	durations_t = torch.tensor(episode_duration_cls0, dtype=torch.float)
 	plt.plot(durations_t.numpy())
 
 	plt.subplot(2, 1, 2)
 	plt.xlabel('Episode')
 	plt.ylabel('Rewards')
-	total_rewards_t = torch.tensor(total_rewards[0], dtype=torch.float)
+	total_rewards_t = torch.tensor(total_reward_cls0, dtype=torch.float)
 	plt.plot(total_rewards_t.numpy())
-	plt.show()
-
-
+	plt.savefig(os.path.join(result_dir, 'plot_%s.png'%experiment_info['name']))
 
