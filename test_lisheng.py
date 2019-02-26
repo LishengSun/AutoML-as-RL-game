@@ -5,11 +5,12 @@ import torch.optim as optim
 
 import random
 import matplotlib.pyplot as plt
+import time
 
 from distributions import Categorical, DiagGaussian
 from collections import namedtuple
 
-import img_env 
+import img_env
 
 import utils
 
@@ -19,12 +20,34 @@ from PIL import Image
 
 from random import randint
 import numpy as np
-import logging, argparse
-import os
-import pickle
-import time
+
+import argparse, os, logging, pickle
 
 
+
+
+
+
+# display_img = (np.reshape(env.curr_img.numpy(), (28, 28)) * 255).astype(np.uint8)
+# img = Image.fromarray(display_img, 'L')
+# # img.save('my.png')
+# img.show()
+
+# im0 = env.curr_img.numpy()
+
+
+# display_img = observation[1,:,:]*255
+# img = Image.fromarray(np.uint8(display_img), 'L')
+# img.save('my_start.png')
+# img.show()
+
+def smoothing_average(x, factor=10):
+    running_x = 0
+    for i in range(len(x)):
+        U = 1. / min(i+1, factor)
+        running_x = running_x * (1 - U) + x[i] * U
+        x[i] = running_x
+    return x
 
 
 class myNet(nn.Module):
@@ -60,7 +83,7 @@ class myNet(nn.Module):
 	def act(self, inputs, states, masks, deterministic=False):
 		value, actor_features, states = self.base(inputs, states, masks)
 		self.actor_features = actor_features
-		dist = self.dist(actor_features) 
+		dist = self.dist(actor_features)
 		Q_values = dist.logits
 		if deterministic:
 			action = dist.mode()
@@ -88,26 +111,26 @@ class myNet(nn.Module):
 
 class ReplayMemory(object):
 
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.memory = []
-        self.position = 0
+	def __init__(self, capacity):
+		self.capacity = capacity
+		self.memory = []
+		self.position = 0
 
-    def push(self, *args):
-        """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        self.memory[self.position] = Transition(*args)
-        self.position = (self.position + 1) % self.capacity
+	def push(self, *args):
+		"""Saves a transition."""
+		if len(self.memory) < self.capacity:
+			self.memory.append(None)
+		self.memory[self.position] = Transition(*args)
+		self.position = (self.position + 1) % self.capacity
 
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
+	def sample(self, batch_size):
+		return random.sample(self.memory, batch_size)
 
-    def __len__(self):
-        return len(self.memory)
+	def __len__(self):
+		return len(self.memory)
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward', 'curr_label'))
+						('state', 'action', 'next_state', 'reward', 'curr_label'))
 
 
 def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
@@ -118,27 +141,28 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 
 
 	non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)), dtype=torch.uint8).to(device)
+										  batch.next_state)), dtype=torch.uint8).to(device)
 
 	non_final_next_states = torch.stack([s for s in batch.next_state \
-    	if s is not None])
+		if s is not None])
 	# print ('non_final_next_states', non_final_next_states.shape)
 	state_batch = torch.stack(batch.state)
 	# print ('state_batch.size', state_batch.size)
 	action_batch = torch.stack(batch.action)
 	reward_batch = torch.cat(batch.reward)
-	
 
-	_, _, Q_values_batch, clf_proba_batch, _, _ = net.act(inputs=state_batch.float(), \
-			states=state_batch, masks=state_batch[1])
+
+	_, _, Q_values_batch, clf_proba_batch, _, _ = net.act(
+		inputs=state_batch.float(),
+		states=state_batch, masks=state_batch[1])
 
 	# print (action_batch.shape)
 	state_action_values = Q_values_batch.gather(1, action_batch[:, 0].view(BATCH_SIZE,1))
 	# actual Q values = Q values indexed by sampled action
-	next_state_values = torch.zeros(BATCH_SIZE, device=device)
-	
+	next_state_values = torch.zeros(BATCH_SIZE).to(device)
+
 	_, _, next_Q_values_batch, _, _, _= net.act(inputs=non_final_next_states.float(),states=non_final_next_states, masks=non_final_next_states[1])
-	
+
 	next_state_values[non_final_mask] = next_Q_values_batch.max(1)[0].detach()
 
 	expected_state_action_values = (next_state_values * GAMMA) + reward_batch # Compute the expected Q values
@@ -165,7 +189,6 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 	# 		param.grad.data.clamp_(-1, 1)
 	# 	optimizer_clf.step()
 	return loss_clf, loss_dist
-
 
 
 
@@ -200,16 +223,18 @@ if __name__ == '__main__':
 	BATCH_SIZE = 128
 	NUM_STEPS = 20
 	GAMMA = 1 - (1 / NUM_STEPS) # Set to horizon of max episode length
+	EPS = 0.05
+	NUM_LABELS = 2
 
-	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10)
-	num_episodes = 5000
+	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10, num_labels=NUM_LABELS)
+	num_episodes = 1000
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist').to(device)
 	memory = ReplayMemory(10000)
 
 	experiment_info = {} # create a standalone file to summarize all exp info and results
-	experiment_info['name'] = 'digits_check_EndOfEpisode'
+	experiment_info['name'] = 'check_EndOfEpisode'
 	experiment_info['num_episodes'] = num_episodes
 	experiment_info['NUM_STEPS'] = NUM_STEPS
 	experiment_info['device'] = device.type
@@ -222,7 +247,7 @@ if __name__ == '__main__':
 
 
 	for i_episode in range(num_episodes):
-		# print ('episode:', i_episode)
+		print ('episode:', i_episode)
 		experiment_info['results']['episode_%i'%i_episode] = {}
 		total_reward_i = 0
 		observation = env.reset()
@@ -235,21 +260,21 @@ if __name__ == '__main__':
 			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(
 				inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32).to(device),
 				states=observation, masks=observation[1])
-			if device.type == 'cuda':
-				action = actionS.cpu().numpy()[0][0]
-				class_pred = actionS.cpu().numpy()[0][1]
-				actionS = actionS.cpu().numpy()[0]
-			else:
-				action = actionS.numpy()[0][0]
-				class_pred = actionS.numpy()[0][1]
-				actionS = actionS.numpy()[0]
+			actionS = actionS.cpu().numpy()[0]
+			action = actionS[0]
+			class_pred = actionS[1]
 			last_observation = observation
+			rand = np.random.rand()
+			if rand < EPS:
+				actionS = np.array(
+					[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
 			observation, reward, done, info = env.step(actionS)
-			# print ('done?', done)
-			# print ('reward', reward)
+			total_reward_i += reward
 			action_trajectory_i.append(observation)
-			total_reward_i = reward + GAMMA*total_reward_i
+			# print ('step %i'%t)
+			# print ('reward', reward)
 			# print ('total_reward_i', total_reward_i)
+			# print ('===========')
 			memory.push(
 				torch.from_numpy(last_observation).to(device),
 				torch.from_numpy(actionS).to(device),
@@ -272,7 +297,9 @@ if __name__ == '__main__':
 	logging.info('Experiments completed in %f seconds'%total_run_time)
 	experiment_info['Total_Run_Time'] = total_run_time
 
-	with open(os.path.join(result_dir, 'experiment_info_%s.pickle'%experiment_info['name']), 'wb') as handle:
+	ts = int(time.time())
+
+	with open(os.path.join(result_dir, 'experiment_info_%i_%s.pickle'%(ts, experiment_info['name'])), 'wb') as handle:
 		pickle.dump(experiment_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 	
@@ -282,7 +309,7 @@ if __name__ == '__main__':
 
 	for epi in range(experiment_info['num_episodes']):
 		# print (experiment_info['results']['episode_%i'%epi]['curr_label'])
-		if experiment_info['results']['episode_%i'%epi]['curr_label'] == 4:
+		if experiment_info['results']['episode_%i'%epi]['curr_label'] == 0:
 			episode_duration_cls0.append(experiment_info['results']['episode_%i'%epi]['episode_duration'])
 			total_reward_cls0.append(experiment_info['results']['episode_%i'%epi]['total_reward'])
 
@@ -292,12 +319,14 @@ if __name__ == '__main__':
 	plt.xlabel('Episode')
 	plt.ylabel('Episode_Duration')
 	durations_t = torch.tensor(episode_duration_cls0, dtype=torch.float)
-	plt.plot(durations_t.numpy())
+	plt.plot(smoothing_average(durations_t.numpy()))
 
 	plt.subplot(2, 1, 2)
 	plt.xlabel('Episode')
 	plt.ylabel('Rewards')
 	total_rewards_t = torch.tensor(total_reward_cls0, dtype=torch.float)
-	plt.plot(total_rewards_t.numpy())
-	plt.savefig(os.path.join(result_dir, 'plot_%s.png'%experiment_info['name']))
+	plt.plot(smoothing_average(total_rewards_t.numpy()))
+	
+	exp_name = 	experiment_info['name'] 
+	plt.savefig(os.path.join(result_dir, 'bs{BATCH_SIZE}_steps{NUM_STEPS}_mnist{ts}_{exp_name}.png'.format(**locals())))
 

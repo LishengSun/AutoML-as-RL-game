@@ -50,19 +50,22 @@ def get_data_loader(env_id, train=True):
 
 
 class ImgEnv(object):
-    def __init__(self, dataset, train, max_steps, channels, window=5, random_label=0.):
+    def __init__(self, dataset, train, max_steps, channels, window=5, num_labels=10):
         self.action_space = Discrete(4)
         self.observation_space = Box(low=0, high=1, shape=(channels, 32, 32))
         self.channels = channels
         self.data_loader = get_data_loader(dataset, train=train)
         self.window = window
         self.max_steps = max_steps
+        self.num_labels = num_labels
 
     def seed(self, seed):
         np.random.seed(seed)
 
     def reset(self):
         self.curr_img, self.curr_label = next(iter(self.data_loader))
+        while self.curr_label >= self.num_labels:
+            self.curr_img, self.curr_label = next(iter(self.data_loader))
         self.curr_img = self.curr_img.squeeze(0)
         self.curr_label = self.curr_label.squeeze(0)
 
