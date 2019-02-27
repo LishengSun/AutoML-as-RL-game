@@ -227,7 +227,7 @@ if __name__ == '__main__':
 	NUM_LABELS = 2
 
 	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10, num_labels=NUM_LABELS)
-	num_episodes = 1000
+	num_episodes = 1
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist').to(device)
@@ -250,13 +250,16 @@ if __name__ == '__main__':
 		print ('episode:', i_episode)
 		experiment_info['results']['episode_%i'%i_episode] = {}
 		total_reward_i = 0
+		fig = plt.figure()
 		observation = env.reset()
+		plt.imshow(observation[0,:,:], cmap=plt.cm.gray)
+		plt.show()
 		curr_label_i = env.curr_label.item()
 		experiment_info['results']['episode_%i'%i_episode]['curr_label'] = curr_label_i
-		action_trajectory_i = [observation]
-
+		action_trajectory_i = observation
+		
 		for t in range(NUM_STEPS):
-			# print ('time step:', t)
+			print ('time step:', t)
 			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(
 				inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32).to(device),
 				states=observation, masks=observation[1])
@@ -270,11 +273,14 @@ if __name__ == '__main__':
 					[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
 			observation, reward, done, info = env.step(actionS)
 			total_reward_i += reward
-			action_trajectory_i.append(observation)
-			# print ('step %i'%t)
+			action_trajectory_i = np.vstack((action_trajectory_i, observation))
+			ax = plt.subplot(np.floor_divide(NUM_STEPS,5)+1, 5, t+1)
+			ax.set_title('t_%i, a=%i'%(t+1,action))
+			
+			ax.imshow(observation[0,:,:], cmap=plt.cm.gray)
 			# print ('reward', reward)
 			# print ('total_reward_i', total_reward_i)
-			# print ('===========')
+			print ('===========')
 			memory.push(
 				torch.from_numpy(last_observation).to(device),
 				torch.from_numpy(actionS).to(device),
@@ -288,6 +294,8 @@ if __name__ == '__main__':
 				# print ('Done after %i steps'%(t+1))
 				break
 
+		plt.show()
+		action_trajectory_i = action_trajectory_i.reshape(NUM_STEPS+1, 2, 32, 32)
 		experiment_info['results']['episode_%i'%i_episode]['action_trajectory']=action_trajectory_i
 		experiment_info['results']['episode_%i'%i_episode]['total_reward']=total_reward_i
 		experiment_info['results']['episode_%i'%i_episode]['episode_duration']=t
