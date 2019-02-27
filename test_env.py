@@ -35,10 +35,12 @@ for t in range(NUM_STEPS):
 	actionS = np.array(
 					[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
 	action = actionS[0]
+	agent_pos = env.pos
 	ax = plt.subplot(1, NUM_STEPS, t+1)
-	ax.set_title('s{t}, a{t}={action}'.format(**locals()))		
+	print(action, agent_pos)
+	ax.set_title('s{t}, a{t}={action}'.format(**locals()))
 	ax.imshow(observation[0,:,:], cmap=plt.cm.gray)
 	observation, reward, done, info = env.step(actionS)
-	
+
 plt.savefig('test_env')
 plt.show()
