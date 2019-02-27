@@ -84,11 +84,11 @@ class ImgEnv(object):
 
     def step(self, action):
         done = False
-        # Go down
+        # Go up
         if action[0] == 0:
             self.pos[0] = max(0, self.pos[0] - self.window)
 
-        # Go up
+        # Go down
         elif action[0] == 1:
             self.pos[0] = min(self.curr_img.shape[1] - self.window,
                               self.pos[0] + self.window)
