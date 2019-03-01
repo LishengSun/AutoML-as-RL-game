@@ -22,6 +22,7 @@ from random import randint
 import numpy as np
 
 import argparse, os, logging, pickle
+import copy
 
 
 
@@ -73,7 +74,7 @@ class myNet(nn.Module):
 			raise NotImplementedError
 
 		if dataset in ['mnist', 'cifar10']:
-			self.clf = Categorical(self.base.output_size, 10)
+			self.clf = Categorical(self.base.output_size, 2)#10)
 
 		self.state_size = self.base.state_size
 
@@ -133,7 +134,7 @@ Transition = namedtuple('Transition',
 						('state', 'action', 'next_state', 'reward', 'curr_label'))
 
 
-def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
+def optimize_myNet(net, curr_label, BATCH_SIZE=128, optimize_clf=False):
 	if len(memory) < BATCH_SIZE:
 		return
 	transitions = memory.sample(BATCH_SIZE)
@@ -188,21 +189,24 @@ def optimize_myNet(net, curr_label, BATCH_SIZE=32, optimize_clf=False):
 	# 	for param in net.dist.parameters():
 	# 		param.grad.data.clamp_(-1, 1)
 	# 	optimizer_clf.step()
-	return loss_clf, loss_dist
+	# print ('loss_clf', loss_clf.item())
+	# print ('loss_dist', loss_dist.item())
+	return total_loss.item(), loss_clf.item(), loss_dist.item()
 
 
 
 if __name__ == '__main__':
 
 	t0 = time.time()
-	
+	ts = ''#int(time.time())
+
 	################# set logdir, required by lab GPU setting
 	
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--logdir', type=str, required=True)
 	args = parser.parse_args()
 	assert os.path.exists(args.logdir), "Log directory non existant..."
-	logging.basicConfig(filename=os.path.join(args.logdir, 'logs.txt'),level=logging.DEBUG, \
+	logging.basicConfig(filename=os.path.join(args.logdir, 'logs{ts}.txt'.format(**locals())),level=logging.DEBUG, \
 		format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', filemode='w')
 
 	############### set result dir to save results and plots
@@ -227,102 +231,126 @@ if __name__ == '__main__':
 	NUM_LABELS = 2
 
 	env = img_env.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=10, num_labels=NUM_LABELS)
-	num_episodes = 1
+	num_episodes = 1000
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-	net = myNet(obs_shape=env.observation_space.shape, action_space=env.action_space, dataset='mnist').to(device)
+	net = myNet(\
+		obs_shape=env.observation_space.shape, \
+		action_space=env.action_space, dataset='mnist').to(device)
 	memory = ReplayMemory(10000)
 
-	experiment_info = {} # create a standalone file to summarize all exp info and results
-	experiment_info['name'] = 'check_EndOfEpisode'
-	experiment_info['num_episodes'] = num_episodes
-	experiment_info['NUM_STEPS'] = NUM_STEPS
-	experiment_info['device'] = device.type
-	experiment_info['architecture'] = net.__repr__()
 
-	experiment_info['results'] = {}
+	# create a standalone file to summarize all exp info and results
+	results_file = {} 
+	results_file['exp_info'] = {}
+	results_file['exp_results'] = {}
+	exp_name='bs{BATCH_SIZE}_steps{NUM_STEPS}_mnist{ts}_2cls_checkEndOfEpi'.format(**locals())
+	results_file['exp_info']['name'] = exp_name
+	results_file['exp_info']['num_episodes'] = num_episodes
+	results_file['exp_info']['num_steps'] = NUM_STEPS
+	results_file['exp_info']['device'] = device.type
+	results_file['exp_info']['architecture'] = net.__repr__()
 
-
-
-
+	action_code = {1:'D', 0: 'U', 2:'L', 3:'R'}
 
 	for i_episode in range(num_episodes):
-		print ('episode:', i_episode)
-		experiment_info['results']['episode_%i'%i_episode] = {}
+		results_file['exp_results']['episode_%i'%i_episode] = {}
 		total_reward_i = 0
-		fig = plt.figure()
 		observation = env.reset()
-		plt.imshow(observation[0,:,:], cmap=plt.cm.gray)
-		plt.show()
 		curr_label_i = env.curr_label.item()
-		experiment_info['results']['episode_%i'%i_episode]['curr_label'] = curr_label_i
-		action_trajectory_i = observation
+		actionS_i = []
+		location_i = copy.deepcopy(observation[0])
+
+		img_i = copy.deepcopy(observation[1])
+
 		
 		for t in range(NUM_STEPS):
-			print ('time step:', t)
 			value, actionS, Q_values, clf_proba, action_log_probs, states = net.act(
-				inputs=torch.from_numpy(observation).float().resize_(1, 2, 32, 32).to(device),
+				inputs=torch.from_numpy(observation).float().resize_(1, observation.shape[0], observation.shape[1], observation.shape[2]).to(device),
 				states=observation, masks=observation[1])
 			actionS = actionS.cpu().numpy()[0]
-			action = actionS[0]
 			class_pred = actionS[1]
 			last_observation = observation
 			rand = np.random.rand()
 			if rand < EPS:
 				actionS = np.array(
 					[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
+			actionS_i.append(actionS)
+			action = actionS[0]
+			# print(t, action_code[action], env.pos)
+			# plt.imshow(observation[0], cmap=plt.cm.gray)
+			# plt.show()
 			observation, reward, done, info = env.step(actionS)
 			total_reward_i += reward
-			action_trajectory_i = np.vstack((action_trajectory_i, observation))
-			ax = plt.subplot(np.floor_divide(NUM_STEPS,5)+1, 5, t+1)
-			ax.set_title('t_%i, a=%i'%(t+1,action))
-			
-			ax.imshow(observation[0,:,:], cmap=plt.cm.gray)
-			# print ('reward', reward)
-			# print ('total_reward_i', total_reward_i)
-			print ('===========')
+			# location_i.append(observation[0])
+			# img_i.append(observation[1])
+			location_i = np.vstack((location_i, observation[0]))
+			img_i = np.vstack((img_i, observation[1]))
+
 			memory.push(
 				torch.from_numpy(last_observation).to(device),
 				torch.from_numpy(actionS).to(device),
 				torch.from_numpy(observation).to(device),
 				torch.tensor([reward]).float().to(device),
 				torch.tensor([curr_label_i]).to(device))
-
-			optimize_myNet(net, curr_label_i, BATCH_SIZE)
-
+			
+			try: 
+				total_loss_i, loss_clf_i, loss_dist_i = optimize_myNet(net, curr_label_i, BATCH_SIZE)
+			except Exception: # no enough exp dans le memo
+				optimize_myNet(net, curr_label_i, BATCH_SIZE)
 			if done:
 				# print ('Done after %i steps'%(t+1))
 				break
 
-		plt.show()
-		action_trajectory_i = action_trajectory_i.reshape(NUM_STEPS+1, 2, 32, 32)
-		experiment_info['results']['episode_%i'%i_episode]['action_trajectory']=action_trajectory_i
-		experiment_info['results']['episode_%i'%i_episode]['total_reward']=total_reward_i
-		experiment_info['results']['episode_%i'%i_episode]['episode_duration']=t
-
+		location_i = np.reshape(location_i, (NUM_STEPS+1,32,32))
+		img_i = np.reshape(img_i, (NUM_STEPS+1, 32,32))
+		results_file['exp_results']['episode_%i'%i_episode]['location'] = location_i
+		results_file['exp_results']['episode_%i'%i_episode]['img'] = img_i
+		results_file['exp_results']['episode_%i'%i_episode]['curr_label'] = curr_label_i
+		results_file['exp_results']['episode_%i'%i_episode]['actionS']=actionS_i
+		results_file['exp_results']['episode_%i'%i_episode]['total_reward']=total_reward_i
+		results_file['exp_results']['episode_%i'%i_episode]['episode_duration']=t
+		try:
+			results_file['exp_results']['episode_%i'%i_episode]['loss_clf']=loss_clf_i
+			results_file['exp_results']['episode_%i'%i_episode]['loss_dist']=loss_dist_i
+			results_file['exp_results']['episode_%i'%i_episode]['total_loss']=total_loss_i
+		except Exception:
+			pass
 		
 	total_run_time = time.time()-t0
 	logging.info('Experiments completed in %f seconds'%total_run_time)
-	experiment_info['Total_Run_Time'] = total_run_time
+	results_file['exp_info']['Total_Run_Time'] = total_run_time
 
-	ts = int(time.time())
 
-	with open(os.path.join(result_dir, 'experiment_info_%i_%s.pickle'%(ts, experiment_info['name'])), 'wb') as handle:
-		pickle.dump(experiment_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+	with open(os.path.join(result_dir, 'results_file{exp_name}'.format(**locals())), 'wb') as handle:
+		pickle.dump(results_file, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-	
+################################### PLOTS ####################################	
 
 	episode_duration_cls0 = []
 	total_reward_cls0 = []
+	actionS_cls0 = []
+	location_cls0 = []
+	img_cls0 = []
+	loss_clf_cls0 = []
+	loss_dist_cls0 = []
+	total_loss_cls0 = []
 
-	for epi in range(experiment_info['num_episodes']):
-		# print (experiment_info['results']['episode_%i'%epi]['curr_label'])
-		if experiment_info['results']['episode_%i'%epi]['curr_label'] == 0:
-			episode_duration_cls0.append(experiment_info['results']['episode_%i'%epi]['episode_duration'])
-			total_reward_cls0.append(experiment_info['results']['episode_%i'%epi]['total_reward'])
+	for epi in range(results_file['exp_info']['num_episodes']):
+		if results_file['exp_results']['episode_%i'%epi]['curr_label'] == 0:
+			episode_duration_cls0.append(results_file['exp_results']['episode_%i'%epi]['episode_duration'])
+			total_reward_cls0.append(results_file['exp_results']['episode_%i'%epi]['total_reward'])
+			actionS_cls0.append(results_file['exp_results']['episode_%i'%epi]['actionS'])
+			location_cls0.append(results_file['exp_results']['episode_%i'%epi]['location'])
+			img_cls0.append(results_file['exp_results']['episode_%i'%epi]['img'])
+			try:
+				loss_clf_cls0.append(results_file['exp_results']['episode_%i'%epi]['loss_clf'])
+				loss_dist_cls0.append(results_file['exp_results']['episode_%i'%epi]['loss_dist'])
+				total_loss_cls0.append(results_file['exp_results']['episode_%i'%epi]['total_loss'])
+			except Exception:
+				pass
 
-
-	plt.title('Class 0')
+	fig1 = plt.figure() 
 	plt.subplot(2, 1, 1)
 	plt.xlabel('Episode')
 	plt.ylabel('Episode_Duration')
@@ -334,7 +362,32 @@ if __name__ == '__main__':
 	plt.ylabel('Rewards')
 	total_rewards_t = torch.tensor(total_reward_cls0, dtype=torch.float)
 	plt.plot(smoothing_average(total_rewards_t.numpy()))
-	
-	exp_name = 	experiment_info['name'] 
-	plt.savefig(os.path.join(result_dir, 'bs{BATCH_SIZE}_steps{NUM_STEPS}_mnist{ts}_{exp_name}.png'.format(**locals())))
+	fig1.suptitle('Class 0')
+	plt.savefig(os.path.join(result_dir, '{exp_name}'.format(**locals())))
+
+
+
+	fig2 = plt.figure() 
+	plt.subplot(3, 1, 1)
+	plt.xlabel('Episode')
+	plt.ylabel('loss_clf')
+	loss_clf_t = torch.tensor(loss_clf_cls0, dtype=torch.float)
+	plt.plot(smoothing_average(loss_clf_t.numpy()))
+
+	plt.subplot(3, 1, 2)
+	plt.xlabel('Episode')
+	plt.ylabel('loss_dist')
+	loss_dict_t = torch.tensor(loss_dist_cls0, dtype=torch.float)
+	plt.plot(smoothing_average(loss_dict_t.numpy()))
+
+	plt.subplot(3, 1, 3)
+	plt.xlabel('Episode')
+	plt.ylabel('total_loss')
+	total_loss_t = torch.tensor(total_loss_cls0, dtype=torch.float)
+	plt.plot(smoothing_average(total_loss_t.numpy()))
+	fig2.suptitle('Class 0')
+	plt.savefig(os.path.join(result_dir, 'loss_{exp_name}'.format(**locals())))
+
+
+
 
