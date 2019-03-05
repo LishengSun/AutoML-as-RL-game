@@ -155,7 +155,6 @@ class CNNBase(nn.Module):
           nn.init.orthogonal_,
           lambda x: nn.init.constant_(x, 0))
 
-        self.critic_linear = init_(nn.Linear(512, 1))
         self.train()
 
     @property
@@ -197,7 +196,7 @@ class CNNBase(nn.Module):
                 # flatten
                 x = x.view(T * N, -1)
 
-        return self.critic_linear(x), x, states
+        return x, states
 
 
 class MLPBase(nn.Module):
