@@ -87,7 +87,7 @@ class myNet_with_CNNpretrained(nn.Module):
 
 		if action_space.__class__.__name__ == "Discrete": # our case
 			num_outputs = action_space.n
-			self.dist = Categorical(self.base.output_size, num_outputs)
+			self.dist = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs)
 		else:
 			raise NotImplementedError
 
@@ -103,8 +103,11 @@ class myNet_with_CNNpretrained(nn.Module):
 
 	def act(self, inputs, states, masks, deterministic=False):
 		actor_features = self.base(inputs[:,1:2,:,:])# only takes img as input to the pretrained CNN
-#         print (actor_features.shape)
-		dist = self.dist(actor_features)
+		# print ('actor_features.shape ', actor_features.shape)
+		# print ('inputs[:,0,:,:]', inputs[:,0,:,:].shape)
+		actor_features_with_location = torch.cat((actor_features, inputs[:,0,:,:].view(inputs.size(0), -1)), 1)
+		# print ('actor_features_with_location', actor_features_with_location.shape)
+		dist = self.dist(actor_features_with_location)
 #         print (dist)
 		Q_values = dist.logits
 		
@@ -240,6 +243,7 @@ if __name__ == '__main__':
 		print ('episode ', i_episode)
 		total_reward_i = 0
 		observation = env.reset()
+		
 		curr_label = env.curr_label.item()
 		for t in range(NUM_STEPS): # allow 100 steps
 	
@@ -255,6 +259,7 @@ if __name__ == '__main__':
 					[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
 			action = actionS[0]
 			observation, reward, done, info = env.step(actionS)
+			
 			total_reward_i = reward + GAMMA*total_reward_i
 			memory.push(torch.from_numpy(last_observation), torch.from_numpy(actionS), \
 				torch.from_numpy(observation), torch.tensor([reward]).float(), torch.tensor([curr_label]))
@@ -297,7 +302,7 @@ if __name__ == '__main__':
 	plt.ylabel('Loss Classification')
 	loss_classification_t = torch.tensor(loss_classification[0], dtype=torch.float)
 	plt.plot(smoothing_average(loss_classification_t.numpy()))
-	plt.savefig('pretrained_CNN/results')
+	plt.savefig('pretrained_CNN/pretrainedCNN_image+location')
 	plt.show()
 
 
