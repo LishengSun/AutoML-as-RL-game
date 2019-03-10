@@ -52,7 +52,7 @@ def get_data_loader(env_id, train=True):
 class ImgEnv(object):
     def __init__(self, dataset, train, max_steps, channels, window=5, num_labels=10):
         self.action_space = Discrete(4)
-        self.observation_space = Box(low=0, high=1, shape=(channels, 32, 32))
+        self.observation_space = Box(low=0, high=1, shape=(channels, 28, 28))#shape=(channels, 32, 32))
         self.channels = channels
         self.data_loader = get_data_loader(dataset, train=train)
         self.window = window
