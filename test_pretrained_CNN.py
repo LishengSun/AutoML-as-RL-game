@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
+import json
 
 import random
 import matplotlib.pyplot as plt
@@ -22,6 +23,7 @@ from PIL import Image
 
 from random import randint
 import numpy as np
+import os
 
 from pretrained_CNN import CNN_pretrained
 
@@ -121,9 +123,11 @@ if __name__ == '__main__':
 	EPS = 0.05
 	NUM_LABELS = 2
 	WINDOW_SIZE = 8
-	NUM_EPISODES = 1000
+	NUM_EPISODES = 5000
 	TARGET_UPDATE = 10
 	RUNS = 3
+	RESULT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'simulation_results')
+
 
 	# env = img_env28.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=WINDOW_SIZE, num_labels=NUM_LABELS)
 	env = img_env28_extend.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=WINDOW_SIZE, num_labels=NUM_LABELS)
@@ -199,6 +203,16 @@ if __name__ == '__main__':
 		run_loss_clf.append(loss_classification)
 
 
+	
+	with open(os.path.join(RESULT_DIR,'run_durations_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile1:
+		json.dump(run_durations, outfile1)
+
+	with open(os.path.join(RESULT_DIR,'run_total_rewards_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile2:
+		json.dump(run_total_rewards, outfile2)
+
+	with open(os.path.join(RESULT_DIR,'run_loss_clf_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile3:
+		json.dump(run_loss_clf, outfile3)
+
 	plt.title('Class 0')
 	plt.subplot(3, 1, 1)
 	plt.xlabel('Episode')
@@ -212,16 +226,22 @@ if __name__ == '__main__':
 	plt.ylabel('Rewards')
 	total_rewards_t = torch.tensor(total_rewards[0], dtype=torch.float)
 	# plt.plot(smoothing_average(total_rewards_t.numpy()))
-	sns.tsplot(data=run_total_rewards, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
-	
+	sns.tsplot(data=[smoothing_average(run_total_rewards[i]) for i in range(len(run_total_rewards))], \
+		time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
+
+	# sns.tsplot(data=run_total_rewards, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
+
 	plt.subplot(3, 1, 3)
 	plt.ylim(top=1)
 	plt.xlabel('Episode')
 	plt.ylabel('Loss Classification')
 	loss_classification_t = torch.tensor(loss_classification[0], dtype=torch.float)
 	# plt.plot(smoothing_average(loss_classification_t.numpy()))
-	sns.tsplot(data=run_loss_clf, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 3), color='red')
-	plt.savefig('pretrained_CNN/pretrainedCNN_extend_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
+	sns.tsplot(data=[smoothing_average(run_loss_clf[i]) for i in range(len(run_loss_clf))], \
+		time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 3), color='red')
+	# sns.tsplot(data=run_loss_clf, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
+
+	plt.savefig('./simulation_results/pretrainedCNN_extend_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
 	plt.show()
 
 

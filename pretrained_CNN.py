@@ -17,9 +17,8 @@ random_seed = 1
 torch.backends.cudnn.enabled = False
 torch.manual_seed(random_seed)
 
-
 train_loader = torch.utils.data.DataLoader(
-  torchvision.datasets.MNIST('/files/', train=True, download=True,
+  torchvision.datasets.MNIST('./files/', train=True, download=True,
                              transform=torchvision.transforms.Compose([
                                torchvision.transforms.ToTensor(),
                                torchvision.transforms.Normalize(
@@ -29,7 +28,7 @@ train_loader = torch.utils.data.DataLoader(
 
 
 test_loader = torch.utils.data.DataLoader(
-  torchvision.datasets.MNIST('/files/', train=False, download=True,
+  torchvision.datasets.MNIST('./files/', train=False, download=True,
                              transform=torchvision.transforms.Compose([
                                torchvision.transforms.ToTensor(),
                                torchvision.transforms.Normalize(
@@ -54,6 +53,7 @@ import matplotlib.pyplot as plt
 # 	plt.title("Ground Truth: {}".format(example_targets[i]))
 # 	plt.xticks([])
 # 	plt.yticks([])
+
 
 
 class CNN_pretrained(nn.Module):
@@ -126,6 +126,8 @@ def test():
 
 
 if __name__ == '__main__':
+
+
 
 	test()
 	for epoch in range(1, n_epochs + 1):

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from img_env import IMG_ENVS
+# from img_env import IMG_ENVS
 
 
 # if gpu is to be used
