@@ -1,3 +1,13 @@
+"""
+Based on img_env28_extend.py, changed to have jump action space 
+For this, we flatten the image (row-major) to 28*28=784 list, 
+and let the action space to have 785 (extra action for done) discrete values.
+Then when the agent chooses a action value among 0, ..., 784, we just recover it to have the exact location 
+with index_row = action//28 and index_col = action%28
+--Lisheng
+"""
+
+
 import numpy as np
 
 import torch
@@ -53,9 +63,10 @@ def get_data_loader(env_id, train=True):
 
 class ImgEnv(object):
     def __init__(self, dataset, train, max_steps, channels, window=5, num_labels=10):
-        # Extend action space with the 5th choice: if action = 4, the agent is ready to 
-        # get its prediction checked
-        self.action_space = Discrete(5)
+        # Jump action space has 28*28+1=785 actions: 
+        # if action<=784: move to (action//28, action%28)
+        # else: done
+        self.action_space = Discrete(785)
         self.observation_space = Box(low=0, high=1, shape=(channels, 28, 28))#shape=(channels, 32, 32))
         self.channels = channels
         self.data_loader = get_data_loader(dataset, train=train)
@@ -88,35 +99,22 @@ class ImgEnv(object):
 
     def step(self, action):
         done = False
-        # Go up
-        if action[0] == 0:
-            self.pos[0] = max(0, self.pos[0] - self.window)
+        if action[0] <= 784: # move
+            self.pos[0] = action[0] // 28# row move
+            self.pos[1] = action[0] % 28# col move
 
-        # Go down
-        elif action[0] == 1:
-            self.pos[0] = min(self.curr_img.shape[1] - self.window,
-                              self.pos[0] + self.window)
-        # Go left
-        elif action[0] == 2:
-            self.pos[1] = max(0, self.pos[1] - self.window)
-
-        # Go right
-        elif action[0] == 3:
-            self.pos[1] = min(self.curr_img.shape[2] - self.window,
-                              self.pos[1] + self.window)
-
-        # Ready to predict, go nowhere
-        elif action[0] == 4:
+        elif action[0] == 785:# Ready to predict, go nowhere
             done = True
+
         else:
             print("Action out of bounds!")
             return
         self.state[0, :, :] = np.zeros(
             (1, self.curr_img.shape[1], self.curr_img.shape[2]))
-        self.state[0, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] = 1
+        self.state[0, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] = 1 # location channel
         self.state[1:,
             self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] = \
-                self.curr_img[:, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window]
+                self.curr_img[:, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] # image channel
         self.num_steps += 1
         if not done: 
             done = self.num_steps >= self.max_steps
@@ -138,34 +136,21 @@ class ImgEnv(object):
 
 
 if __name__ == '__main__':
-    # transform = T.Compose([
-    #                T.ToTensor(),
-    #                T.Normalize((0.1307,), (0.3081,))
-    #            ])
-    # dataset = datasets.MNIST
-    # channels = 2
-    # train = True
-    # loader = torch.utils.data.DataLoader(
-    #     dataset('data', train=train, download=True,
-    #         transform=transform),
-    #     batch_size=60000, shuffle=True)
-    # for imgs, labels in loader:
-    #     break
-    # env = ImgEnv_extend(imgs, labels, max_steps=200, channels=channels, window=5)
-    MAX_STEPS = 10
-    env = ImgEnv('mnist', train=True, max_steps=MAX_STEPS, channels=2, window=14, num_labels=10)
-    observation = env.reset()
-    for t in range(MAX_STEPS):
-        move = np.random.choice((range(5)))
-        clf = np.random.choice((range(10)))
-        actionS = [move, clf]
-        observation, reward, done, _ = env.step(actionS)
-        print ('t = {t}, actionS = {actionS}, done = {done}, reward = {reward}'.format(**locals()))
-        plt.imshow(observation[1,:,:])
-        plt.show()
-        if done:
-            break
-
+    transform = T.Compose([
+                   T.ToTensor(),
+                   T.Normalize((0.1307,), (0.3081,))
+               ])
+    dataset = datasets.MNIST
+    channels = 2
+    train = True
+    loader = torch.utils.data.DataLoader(
+        dataset('data', train=train, download=True,
+            transform=transform),
+        batch_size=60000, shuffle=True)
+    for imgs, labels in loader:
+        break
+    env = ImgEnv_extend(imgs, labels, max_steps=200, channels=channels, window=5)
+    
     # loader = torch.utils.data.DataLoader(
     #     Cityscapes(CITYSCAPE, train, transform=transform), batch_size=10000,
     #     shuffle=True)
