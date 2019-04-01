@@ -24,10 +24,10 @@ NUM_LABELS = 2
 
 WINDOW_SIZE = 8                             
 
-NUM_EPISODES = 1000                            
+NUM_EPISODES = 5000                            
 TARGET_UPDATE = 10                             
 RUNS = 3                                      
 
-![alt text](https://raw.githubusercontent.com/LishengSun/AutoML-as-RL-game/pretrainedCNN_with_extended_actions/figs/pretrainedCNN_extend_2labs_3runs_1000epis_10steps_8ws_rw-10.png)
+![alt text](https://raw.githubusercontent.com/LishengSun/AutoML-as-RL-game/pretrainedCNN_with_extended_actions/simulation_results/pretrainedCNN_extend_2labs_3runs_5000epis_10steps_8ws_rw-10.png)
 
 
