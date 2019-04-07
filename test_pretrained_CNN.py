@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import json
+import pdb
+import optparse
 
 import random
 import matplotlib.pyplot as plt
@@ -11,7 +13,7 @@ import matplotlib.pyplot as plt
 from distributions import Categorical, DiagGaussian
 from collections import namedtuple
 
-import img_env28, img_env28_extend
+import img_env28, img_env28_jump
 
 import utils
 import seaborn as sns
@@ -23,7 +25,7 @@ from PIL import Image
 
 from random import randint
 import numpy as np
-import os
+import os, time
 
 from pretrained_CNN import CNN_pretrained
 
@@ -68,7 +70,7 @@ Transition = namedtuple('Transition',
 def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=False):
 	if len(memory) < BATCH_SIZE:
 		return
-	# print ('Optimizing')
+	print ('Optimizing')
 	transitions = memory.sample(BATCH_SIZE)
 	batch = Transition(*zip(*transitions))
 
@@ -85,20 +87,25 @@ def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=Fals
 	reward_batch = torch.cat(batch.reward).to(device)
 
 
-	_, Q_values_batch, clf_proba_batch, _, _ = net.act(
+	_, Q_values_batch, clf_proba_batch, _ = net.act(
 		inputs=state_batch.float(),
 		states=state_batch, masks=state_batch[1])
+	
 
 	state_action_values = Q_values_batch.gather(1, action_batch[:, 0].view(BATCH_SIZE,1))
-	next_state_values = torch.zeros(BATCH_SIZE).to(device)
 
-	_, next_Q_values_batch, _, _, _= target_net.act(inputs=non_final_next_states.float(),states=non_final_next_states, masks=non_final_next_states[1])
+	next_state_values = torch.zeros(BATCH_SIZE).to(device)
+	torch.zeros(BATCH_SIZE).to(device)
+	_, next_Q_values_batch, _, _= target_net.act(inputs=non_final_next_states.float(),states=non_final_next_states, masks=non_final_next_states[1])
+	
 
 	next_state_values[non_final_mask] = next_Q_values_batch.max(1)[0].detach()
-
+	
 	expected_state_action_values = (next_state_values * GAMMA) + reward_batch # Compute the expected Q values
-	loss_dist = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
+
+	loss_dist = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+	# pdb.set_trace()
 	curr_label_batch = torch.cat(batch.curr_label).to(device)
 	loss_clf = F.nll_loss(clf_proba_batch, curr_label_batch)
 
@@ -117,20 +124,41 @@ def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=Fals
 
 
 if __name__ == '__main__':
+	t0 = time.time()
+
+	# Collect arguments 
+	parser = optparse.OptionParser()
+	parser.add_option('-s', '--NUM_STEPS',
+    	action="store", dest="NUM_STEPS", type=int,
+    	help="max num of steps for each episode", default=10)
+
+	parser.add_option('-l', '--NUM_LABELS',
+    	action="store", dest="NUM_LABELS", type=int,
+    	help="num of labels shown to agent", default=2)
+
+	parser.add_option('-w', '--WINDOW_SIZE',
+    	action="store", dest="WINDOW_SIZE", type=int,
+    	help="window size of each reveal", default=8)
+
+	options, args = parser.parse_args()
+
+	NUM_STEPS = options.NUM_STEPS
+	NUM_LABELS = options.NUM_LABELS
+	WINDOW_SIZE = options.WINDOW_SIZE
 	BATCH_SIZE = 128
-	NUM_STEPS = 10
+	# NUM_STEPS = 50
 	GAMMA = 1 - (1 / NUM_STEPS) # Set to horizon of max episode length
 	EPS = 0.05
-	NUM_LABELS = 2
-	WINDOW_SIZE = 8
-	NUM_EPISODES = 5000
+	# NUM_LABELS = 10
+	# WINDOW_SIZE = 4
+	NUM_EPISODES = 10000
 	TARGET_UPDATE = 10
 	RUNS = 3
 	RESULT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'simulation_results')
 
 
 	# env = img_env28.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=WINDOW_SIZE, num_labels=NUM_LABELS)
-	env = img_env28_extend.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=WINDOW_SIZE, num_labels=NUM_LABELS)
+	env = img_env28_jump.ImgEnv('mnist', train=True, max_steps=NUM_STEPS, channels=2, window=WINDOW_SIZE, num_labels=NUM_LABELS)
 
 
 	run_durations = []
@@ -153,7 +181,7 @@ if __name__ == '__main__':
 		total_rewards = []
 		episode_durations = []
 		loss_classification = []
-		q_values = []
+		q_value = []
 		# optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
 		optimizer_clf = optim.SGD(filter(lambda p: p.requires_grad, net.parameters()), lr=0.01, momentum=0.5)
 
@@ -164,27 +192,28 @@ if __name__ == '__main__':
 			curr_label = env.curr_label.item()
 			for t in range(NUM_STEPS): # allow 100 steps
 		
-				actionS, Q_values, clf_proba, action_log_probs, states = net.act(
+				actionS, Q_value, clf_proba, states = net.act(
 					inputs=torch.from_numpy(observation).float().resize_(1, observation.shape[0], observation.shape[1], observation.shape[2]).to(device),
 					states=observation, masks=observation[1])
+				
 				actionS = actionS.cpu().numpy()[0]
-				class_pred = actionS[1]
 				last_observation = observation
 				rand = np.random.rand()
 				if rand < EPS:
 					actionS = np.array(
-						[np.random.choice(range(4)), np.random.choice(range(NUM_LABELS))])
-				action = actionS[0]
-				observation, reward, done, info = env.step(actionS)
+						[np.random.choice(range(28)), np.random.choice(range(28)), np.random.choice(range(2)), np.random.choice(range(NUM_LABELS))])
+				action_row, action_col, action_done, class_pred = actionS
 				
+				observation, reward, done, info = env.step(actionS)
+
 				total_reward_i = reward + GAMMA*total_reward_i
 				memory.push(torch.from_numpy(last_observation), torch.from_numpy(actionS), \
 					torch.from_numpy(observation), torch.tensor([reward]).float(), torch.tensor([curr_label]))
-	# 			print ('t = %i: action = %i, class = %i, class_pred = %i, reward = %f'%(t, action, curr_label, class_pred, reward))
+				# print ('t = %i: action = %i, class = %i, class_pred = %i, reward = %f, total_reward = %f'%(t, action, curr_label, class_pred, reward, total_reward_i))
 				optimize_myNet(net, curr_label, optimizer_clf, BATCH_SIZE)
 
 				if done:
-	# 				# print ('Done after %i steps'%(t+1))
+					# print ('Done after %i steps, total_reward_i = %f'%(t+1, total_reward_i))
 					break
 		
 			# Update the target network, copying all weights and biases in DQN
@@ -197,7 +226,7 @@ if __name__ == '__main__':
 			total_rewards.append(total_reward_i)
 			episode_durations.append(t)
 			loss_classification.append(loss_classification_i.item())
-			q_values.append(Q_values)
+			q_value.append(Q_value)
 		run_durations.append(episode_durations)
 		run_total_rewards.append(total_rewards)
 		run_loss_clf.append(loss_classification)
@@ -241,8 +270,11 @@ if __name__ == '__main__':
 		time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 3), color='red')
 	# sns.tsplot(data=run_loss_clf, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
 
-	plt.savefig('./simulation_results/pretrainedCNN_extend_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
+	plt.savefig('./simulation_results/pretrainedCNN_jump_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
+	print ('total runtime = %f sec. '%(time.time()-t0))
 	plt.show()
+
+	
 
 
 

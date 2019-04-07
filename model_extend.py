@@ -5,11 +5,13 @@ import torch.optim as optim
 import torchvision
 
 import random
+import pdb
+
 
 from distributions import Categorical, DiagGaussian
 from collections import namedtuple
 
-import img_env28 
+import img_env28_jump
 
 import utils
 
@@ -76,9 +78,16 @@ class myNet_with_CNNpretrained(nn.Module):
 		else:
 			raise NotImplementedError
 
-		if action_space.__class__.__name__ == "Discrete": # our case
-			num_outputs = action_space.n
-			self.dist = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs)
+		if [action_space[i].__class__.__name__=='Discrete' for i in range(3)]: # our case: len(env.action_space)=3 channels of actions
+			num_outputs_row = action_space[0].n
+			num_outputs_col = action_space[1].n
+			num_outputs_done = action_space[2].n
+			self.dist_row = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
+			self.dist_col = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
+			self.dist_done = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
+			self.dist = Categorical(num_outputs_row+num_outputs_col+num_outputs_done, 28*28*2)
+
+
 		else:
 			raise NotImplementedError
 
@@ -98,18 +107,31 @@ class myNet_with_CNNpretrained(nn.Module):
 		# print ('inputs[:,0,:,:]', inputs[:,0,:,:].shape)
 		actor_features_with_location = torch.cat((actor_features, inputs[:,0,:,:].view(inputs.size(0), -1)), 1)
 		# print ('actor_features_with_location', actor_features_with_location.shape)
-		dist = self.dist(actor_features_with_location)
-#         print (dist)
-		Q_values = dist.logits
+		dist_row = self.dist_row(actor_features_with_location)
+		dist_col = self.dist_col(actor_features_with_location)
+		dist_done = self.dist_done(actor_features_with_location)
+		# print ('dist_row: ', dist_row)
+		# print ('dist_row_logits: ', dist_row.logits)
+		dist = self.dist(torch.cat([dist_row.logits, dist_col.logits, dist_done.logits], 1))
+		# print ('dist: ', dist)
+		Q_value = dist.logits
+		# print ('Q value: ', Q_value)
+
 		
 		if deterministic:
-			action = dist.mode()
+			action_row = dist_row.mode()
+			action_col = dist_col.mode()
+			action_done = dist_done.mode()
 		else:
-			action = dist.sample()
+			action_row = dist_row.sample()
+			action_col = dist_col.sample()
+			action_done = dist_done.sample()
 
-		action_log_probs = dist.log_probs(action)
+		# action_row_log_probs = dist_row.log_probs(action_row)
+		# action_col_log_probs = dist_row.log_probs(action_col)
+		# action_done_log_probs = dist_row.log_probs(action_done)
 
-		if self.dataset in img_env28.IMG_ENVS:
+		if self.dataset in img_env28_jump.IMG_ENVS:
 			clf = self.clf(actor_features)
 			clf_proba = clf.logits
 			if deterministic:
@@ -117,9 +139,10 @@ class myNet_with_CNNpretrained(nn.Module):
 			else:
 				classif = clf.sample()
 			
-			action = torch.cat([action, classif], 1)
-			# print ('action', action)
+			action = torch.cat([action_row, action_col, action_done, classif], 1)
+			# print ('action_row', action_row)
+			# print ('action_col', action_col)
+			# print ('action_done', action_done)
 			# print ('classif', classif)
-			action_log_probs += clf_proba.gather(1, classif)
 
-		return action, Q_values, clf_proba, action_log_probs, states #dist.logits = Q values
+		return action, Q_value, clf_proba, states #dist.logits = Q values
