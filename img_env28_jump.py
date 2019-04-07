@@ -66,7 +66,8 @@ class ImgEnv(object):
         # Jump action space has 28*28+1=785 actions: 
         # if action<=784: move to (action//28, action%28)
         # else: done
-        self.action_space = Discrete(785)
+        # self.action_space = Discrete(785)
+        self.action_space = [Discrete(28), Discrete(28), Discrete(2)]
         self.observation_space = Box(low=0, high=1, shape=(channels, 28, 28))#shape=(channels, 32, 32))
         self.channels = channels
         self.data_loader = get_data_loader(dataset, train=train)
@@ -98,17 +99,36 @@ class ImgEnv(object):
         return self.state
 
     def step(self, action):
-        done = False
-        if action[0] <= 784: # move
-            self.pos[0] = action[0] // 28# row move
-            self.pos[1] = action[0] % 28# col move
-
-        elif action[0] == 785:# Ready to predict, go nowhere
+        if action[2] == 1:
             done = True
-
-        else:
-            print("Action out of bounds!")
+        elif action[2] > 1 or action[2] < 0:
+            print("Done Action out of bounds!")
             return
+        else:
+            done = False
+            if action[0] < 28: # row move
+                self.pos[0] = action[0]
+            else: 
+                print("Row Action out of bounds!")
+                return
+            if action[1] < 28: # col move
+                self.pos[1] = action[1]
+            else: 
+                print("Column Action out of bounds!")
+                return
+            if action[2] == 1:
+                done = True
+        
+        # if action[0] <= 784: # move
+        #     self.pos[0] = action[0] // 28# row move
+        #     self.pos[1] = action[0] % 28# col move
+
+        # elif action[0] == 785:# Ready to predict, go nowhere
+        #     done = True
+
+        # else:
+        #     print("Action out of bounds!")
+        #     return
         self.state[0, :, :] = np.zeros(
             (1, self.curr_img.shape[1], self.curr_img.shape[2]))
         self.state[0, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] = 1 # location channel
@@ -119,9 +139,9 @@ class ImgEnv(object):
         if not done: 
             done = self.num_steps >= self.max_steps
         
-        if done and action[1] == self.curr_label.item():
+        if done and action[3] == self.curr_label.item(): # change 3 to 1 if flatten images
             reward = 1
-        elif done and action[1] != self.curr_label.item():
+        elif done and action[3] != self.curr_label.item():
             reward = -10
         else:
             reward = - 1 / self.max_steps
@@ -136,20 +156,21 @@ class ImgEnv(object):
 
 
 if __name__ == '__main__':
-    transform = T.Compose([
-                   T.ToTensor(),
-                   T.Normalize((0.1307,), (0.3081,))
-               ])
-    dataset = datasets.MNIST
-    channels = 2
-    train = True
-    loader = torch.utils.data.DataLoader(
-        dataset('data', train=train, download=True,
-            transform=transform),
-        batch_size=60000, shuffle=True)
-    for imgs, labels in loader:
-        break
-    env = ImgEnv_extend(imgs, labels, max_steps=200, channels=channels, window=5)
+    # transform = T.Compose([
+    #                T.ToTensor(),
+    #                T.Normalize((0.1307,), (0.3081,))
+    #            ])
+    # dataset = datasets.MNIST
+    # channels = 2
+    # train = True
+    # loader = torch.utils.data.DataLoader(
+    #     dataset('data', train=train, download=True,
+    #         transform=transform),
+    #     batch_size=60000, shuffle=True)
+    # for imgs, labels in loader:
+    #     break
+    MAX_STEPS = 10
+    env = ImgEnv('mnist', train=True, max_steps=MAX_STEPS, channels=2, window=5, num_labels=10)
     
     # loader = torch.utils.data.DataLoader(
     #     Cityscapes(CITYSCAPE, train, transform=transform), batch_size=10000,
