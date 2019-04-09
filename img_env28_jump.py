@@ -78,12 +78,14 @@ class ImgEnv(object):
     def seed(self, seed):
         np.random.seed(seed)
 
-    def reset(self):
-        self.curr_img, self.curr_label = next(iter(self.data_loader))
-        while self.curr_label >= self.num_labels:
+    def reset(self, NEXT=True):
+        if NEXT:
             self.curr_img, self.curr_label = next(iter(self.data_loader))
-        self.curr_img = self.curr_img.squeeze(0)
-        self.curr_label = self.curr_label.squeeze(0)
+            # print (self.curr_img.shape)
+            while self.curr_label >= self.num_labels:
+                self.curr_img, self.curr_label = next(iter(self.data_loader))
+            self.curr_img = self.curr_img.squeeze(0)
+            self.curr_label = self.curr_label.squeeze(0)
 
         # initialize position at center of image
         self.pos = [max(0, self.curr_img.shape[1]//2-self.window), max(0, self.curr_img.shape[2]//2-self.window)]
