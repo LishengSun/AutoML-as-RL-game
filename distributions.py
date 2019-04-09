@@ -42,6 +42,7 @@ class Categorical(nn.Module):
 
     def forward(self, x):
         x = self.linear(x)
+        
         return FixedCategorical(logits=x)
 
 

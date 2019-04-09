@@ -29,15 +29,16 @@ from pretrained_CNN import CNN_pretrained
 
 
 class CNNpretrained_Base(nn.Module):
-	def __init__(self):
+	def __init__(self, freeze_CNN=True):
 		super(CNNpretrained_Base, self).__init__()
 		# load the pretrained CNN
 		CNN_pretr = CNN_pretrained()
 		CNN_state_dict = torch.load('./pretrained_CNN/results/model.pth')
 		CNN_pretr.load_state_dict(CNN_state_dict)
-		# freeze it
-		for param in CNN_pretr.parameters(): 
-			param.requires_grad = False
+		
+		if freeze_CNN: # freeze it
+			for param in CNN_pretr.parameters(): 
+				param.requires_grad = False
 
 		self.conv1 = CNN_pretr.conv1
 		self.conv2 = CNN_pretr.conv2
@@ -65,15 +66,45 @@ class CNNpretrained_Base(nn.Module):
 	def output_size(self):
 		return 50
 
+class myClassifier_with_CNNpretrained(nn.Module):
+	def __init__(self, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
+		super(myClassifier_with_CNNpretrained, self).__init__()
+		self.dataset = dataset
+		if len(obs_shape) == 3: #our mnist case
+			self.base = CNNpretrained_Base(freeze_CNN)
+
+		else:
+			raise NotImplementedError
+
+		if dataset in ['mnist', 'cifar10']:
+			num_labels = num_labels
+			self.clf = Categorical(self.base.output_size, num_labels)
+
+	def forward(self, inputs, deterministic=False):
+		actor_features = self.base(inputs[:,1:2,:,:])# only takes img as input to the pretrained CNN
+		if self.dataset in img_env28_jump.IMG_ENVS:
+			clf = self.clf(actor_features)
+			
+			clf_proba = clf.logits
+			
+			if deterministic:
+				classif = clf.mode()
+			else:
+				classif = clf.sample()
+
+		return classif, clf_proba
+		
+
+
 
 
 
 class myNet_with_CNNpretrained(nn.Module):
-	def __init__(self, obs_shape, action_space, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
+	def __init__(self, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
 		super(myNet_with_CNNpretrained, self).__init__()
 		self.dataset = dataset
 		if len(obs_shape) == 3: #our mnist case
-			self.base = CNNpretrained_Base()
+			self.base = CNNpretrained_Base(freeze_CNN)
 
 		else:
 			raise NotImplementedError
@@ -92,7 +123,7 @@ class myNet_with_CNNpretrained(nn.Module):
 			raise NotImplementedError
 
 		if dataset in ['mnist', 'cifar10']:
-			num_labels = 10
+			num_labels = num_labels
 			self.clf = Categorical(self.base.output_size, num_labels)
 
 		self.state_size = self.base.state_size
