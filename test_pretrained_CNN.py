@@ -5,6 +5,7 @@ import torch.optim as optim
 import torchvision
 import json
 import pdb
+import copy
 import optparse
 
 import random
@@ -35,11 +36,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def smoothing_average(x, factor=10):
 	running_x = 0
-	for i in range(len(x)):
+	X = copy.deepcopy(x)
+	for i in range(len(X)):
 		U = 1. / min(i+1, factor)
-		running_x = running_x * (1 - U) + x[i] * U
-		x[i] = running_x
-	return x
+		running_x = running_x * (1 - U) + X[i] * U
+		X[i] = running_x
+	return X
 
 
 class ReplayMemory(object):
@@ -105,7 +107,7 @@ def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=Fals
 
 
 	loss_dist = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-	# pdb.set_trace()
+	
 	curr_label_batch = torch.cat(batch.curr_label).to(device)
 	loss_clf = F.nll_loss(clf_proba_batch, curr_label_batch)
 
@@ -113,10 +115,13 @@ def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=Fals
 
 	optimizer.zero_grad()
 	total_loss.backward()
-	# for param in net.parameters():
+	for p in net.parameters():
+		print (p.requires_grad)
+	pdb.set_trace()
 	for param in filter(lambda p: p.requires_grad, net.parameters()):
-		# print (param)
 		param.grad.data.clamp_(-1, 1)
+
+	
 	optimizer.step()
 
 	return total_loss, loss_clf, loss_dist
@@ -128,6 +133,11 @@ if __name__ == '__main__':
 
 	# Collect arguments 
 	parser = optparse.OptionParser()
+
+	parser.add_option('-e', '--NUM_EPISODES',
+    	action="store", dest="NUM_EPISODES", type=int,
+    	help="num of episodes to train", default=10000)
+
 	parser.add_option('-s', '--NUM_STEPS',
     	action="store", dest="NUM_STEPS", type=int,
     	help="max num of steps for each episode", default=10)
@@ -140,18 +150,21 @@ if __name__ == '__main__':
     	action="store", dest="WINDOW_SIZE", type=int,
     	help="window size of each reveal", default=8)
 
+	parser.add_option("-d", '--DEFREEZE_CNN', action="store_false", \
+		dest="FREEZE_CNN")
+	parser.set_defaults(FREEZE_CNN=True)
+
 	options, args = parser.parse_args()
 
 	NUM_STEPS = options.NUM_STEPS
 	NUM_LABELS = options.NUM_LABELS
 	WINDOW_SIZE = options.WINDOW_SIZE
+	NUM_EPISODES = options.NUM_EPISODES
+	FREEZE_CNN = options.FREEZE_CNN
+
 	BATCH_SIZE = 128
-	# NUM_STEPS = 50
 	GAMMA = 1 - (1 / NUM_STEPS) # Set to horizon of max episode length
 	EPS = 0.05
-	# NUM_LABELS = 10
-	# WINDOW_SIZE = 4
-	NUM_EPISODES = 10000
 	TARGET_UPDATE = 10
 	RUNS = 3
 	RESULT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'simulation_results')
@@ -164,16 +177,19 @@ if __name__ == '__main__':
 	run_durations = []
 	run_total_rewards = []
 	run_loss_clf = []
+	run_observations = []
+	run_actions = []
+	run_labels = []
+
 	for run in range(RUNS):
 		net = model_extend.myNet_with_CNNpretrained(\
 			obs_shape=env.observation_space.shape, \
-			action_space=env.action_space, dataset='mnist').to(device)
-
+			action_space=env.action_space, freeze_CNN=FREEZE_CNN, num_labels = NUM_LABELS, dataset='mnist').to(device)
 
 
 		target_net = model_extend.myNet_with_CNNpretrained(\
 			obs_shape=env.observation_space.shape, \
-			action_space=env.action_space, dataset='mnist').to(device)
+			action_space=env.action_space, freeze_CNN=FREEZE_CNN, num_labels = NUM_LABELS, dataset='mnist').to(device)
 
 		target_net.load_state_dict(net.state_dict())
 		target_net.eval()
@@ -182,21 +198,30 @@ if __name__ == '__main__':
 		episode_durations = []
 		loss_classification = []
 		q_value = []
+		observations = []
+		actions = []
+		labels = []
 		# optimizer_clf = optim.SGD(net.parameters(), lr=0.01, momentum=0.5)
 		optimizer_clf = optim.SGD(filter(lambda p: p.requires_grad, net.parameters()), lr=0.01, momentum=0.5)
 
 		for i_episode in range(NUM_EPISODES):
 			print ('run %i, episode %i'%(run, i_episode))
 			total_reward_i = 0
+			observations_i = []
+			actions_i = []
 			observation = env.reset()	
 			curr_label = env.curr_label.item()
+			labels.append(curr_label)
+
 			for t in range(NUM_STEPS): # allow 100 steps
-		
+				observations_i.append(copy.deepcopy(observation))
+
 				actionS, Q_value, clf_proba, states = net.act(
 					inputs=torch.from_numpy(observation).float().resize_(1, observation.shape[0], observation.shape[1], observation.shape[2]).to(device),
 					states=observation, masks=observation[1])
 				
 				actionS = actionS.cpu().numpy()[0]
+				actions_i.append(copy.deepcopy(actionS))
 				last_observation = observation
 				rand = np.random.rand()
 				if rand < EPS:
@@ -227,10 +252,16 @@ if __name__ == '__main__':
 			episode_durations.append(t)
 			loss_classification.append(loss_classification_i.item())
 			q_value.append(Q_value)
+			observations.append(observations_i)
+			actions.append(actions_i)
+
+
 		run_durations.append(episode_durations)
 		run_total_rewards.append(total_rewards)
 		run_loss_clf.append(loss_classification)
-
+		run_observations.append(observations)
+		run_actions.append(actions)
+		run_labels.append(labels)
 
 	
 	with open(os.path.join(RESULT_DIR,'run_durations_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile1:
@@ -241,6 +272,18 @@ if __name__ == '__main__':
 
 	with open(os.path.join(RESULT_DIR,'run_loss_clf_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile3:
 		json.dump(run_loss_clf, outfile3)
+
+
+	with open(os.path.join(RESULT_DIR,'run_labels_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile4:
+		json.dump(run_labels, outfile4)
+
+	np.save(os.path.join(RESULT_DIR,'run_observations_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_observations)
+		
+	np.save(os.path.join(RESULT_DIR,'run_actions_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_actions)
+		
+
+	print ('total runtime = %f sec.'%(time.time()-t0))
+
 
 	plt.title('Class 0')
 	plt.subplot(3, 1, 1)
@@ -271,7 +314,6 @@ if __name__ == '__main__':
 	# sns.tsplot(data=run_loss_clf, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
 
 	plt.savefig('./simulation_results/pretrainedCNN_jump_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
-	print ('total runtime = %f sec. '%(time.time()-t0))
 	plt.show()
 
 	
