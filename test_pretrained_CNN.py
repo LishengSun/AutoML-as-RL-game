@@ -263,23 +263,30 @@ if __name__ == '__main__':
 		run_actions.append(actions)
 		run_labels.append(labels)
 
+
+	# save everything for later analysis
+
+	torch.save(net.state_dict(), os.path.join(RESULT_DIR,'model_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.pth'.format(**locals())))
+	torch.save(optimizer_clf.state_dict(), os.path.join(RESULT_DIR,'optimizer_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.pth'.format(**locals())))
+
+
 	
-	with open(os.path.join(RESULT_DIR,'run_durations_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile1:
+	with open(os.path.join(RESULT_DIR,'run_durations_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile1:
 		json.dump(run_durations, outfile1)
 
-	with open(os.path.join(RESULT_DIR,'run_total_rewards_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile2:
+	with open(os.path.join(RESULT_DIR,'run_total_rewards_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile2:
 		json.dump(run_total_rewards, outfile2)
 
-	with open(os.path.join(RESULT_DIR,'run_loss_clf_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile3:
+	with open(os.path.join(RESULT_DIR,'run_loss_clf_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile3:
 		json.dump(run_loss_clf, outfile3)
 
 
-	with open(os.path.join(RESULT_DIR,'run_labels_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile4:
+	with open(os.path.join(RESULT_DIR,'run_labels_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10.json'.format(**locals())), 'w') as outfile4:
 		json.dump(run_labels, outfile4)
 
-	np.save(os.path.join(RESULT_DIR,'run_observations_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_observations)
+	np.save(os.path.join(RESULT_DIR,'run_observations_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_observations)
 		
-	np.save(os.path.join(RESULT_DIR,'run_actions_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_actions)
+	np.save(os.path.join(RESULT_DIR,'run_actions_freeze{FREEZE_CNN}_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())), run_actions)
 		
 
 	print ('total runtime = %f sec.'%(time.time()-t0))
@@ -313,7 +320,7 @@ if __name__ == '__main__':
 		time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 3), color='red')
 	# sns.tsplot(data=run_loss_clf, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
 
-	plt.savefig('./simulation_results/pretrainedCNN_jump_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals()))
+	plt.savefig(os.path.join(RESULT_DIR,'freeze{FREEZE_CNN}_jump_{NUM_LABELS}labs_{RUNS}runs_{NUM_EPISODES}epis_{NUM_STEPS}steps_{WINDOW_SIZE}ws_rw-10'.format(**locals())))
 	plt.show()
 
 	
