@@ -100,8 +100,10 @@ class ImgEnv(object):
         self.num_steps = 0
         return self.state
 
-    def step(self, action):
-        if action[2] == 1:
+    def step(self, action, clf_softmax):
+        if action[2] == 1 and clf_softmax[action[3]] > 0.75:
+            print ('before: action = ', action)
+            print ('before: clf_softmax[action[3]]', clf_softmax[action[3]])
             done = True
         elif action[2] > 1 or action[2] < 0:
             print("Done Action out of bounds!")
@@ -118,9 +120,7 @@ class ImgEnv(object):
             else: 
                 print("Column Action out of bounds!")
                 return
-            if action[2] == 1:
-                done = True
-        
+            
         # if action[0] <= 784: # move
         #     self.pos[0] = action[0] // 28# row move
         #     self.pos[1] = action[0] % 28# col move
