@@ -67,32 +67,50 @@ class CNNpretrained_Base(nn.Module):
 		return 50
 
 class myClassifier_with_CNNpretrained(nn.Module):
-	def __init__(self, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
+	def __init__(self):#, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
 		super(myClassifier_with_CNNpretrained, self).__init__()
-		self.dataset = dataset
-		if len(obs_shape) == 3: #our mnist case
-			self.base = CNNpretrained_Base(freeze_CNN)
+		# load the pretrained CNN
+		self.CNN_pretr = CNN_pretrained()
+		CNN_state_dict = torch.load('./pretrained_CNN/results/model.pth')
+		self.CNN_pretr.load_state_dict(CNN_state_dict)
+		# freeze ittttttttt
+		for param in self.CNN_pretr.parameters(): 
+				param.requires_grad = False
 
-		else:
-			raise NotImplementedError
+	def forward(self, inputs):
+		log_softmax, softmax = self.CNN_pretr(inputs)
+		
 
-		if dataset in ['mnist', 'cifar10']:
-			num_labels = num_labels
-			self.clf = Categorical(self.base.output_size, num_labels)
+		return log_softmax, softmax
 
-	def forward(self, inputs, deterministic=False):
-		actor_features = self.base(inputs[:,1:2,:,:])# only takes img as input to the pretrained CNN
-		if self.dataset in img_env28_jump.IMG_ENVS:
-			clf = self.clf(actor_features)
+	# def __init__(self, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
+	# 	super(myClassifier_with_CNNpretrained, self).__init__()
+	# 	self.dataset = dataset
+	# 	if len(obs_shape) == 3: #our mnist case
+	# 		self.base = CNNpretrained_Base(freeze_CNN)
+
+	# 	else:
+	# 		raise NotImplementedError
+
+	# 	if dataset in ['mnist', 'cifar10']:
+	# 		num_labels = num_labels
+	# 		self.clf = Categorical(self.base.output_size, num_labels)
+
+	# def forward(self, inputs, deterministic=False):
+	# 	print ('clfing')
+	# 	actor_features = self.base(inputs[:,1:2,:,:])# only takes img as input to the pretrained CNN
+	# 	if self.dataset in img_env28_jump.IMG_ENVS:
+	# 		clf = self.clf(actor_features)
 			
-			clf_proba = clf.logits
+	# 		clf_logits = clf.logits
+	# 		clf_proba = clf.probs
 			
-			if deterministic:
-				classif = clf.mode()
-			else:
-				classif = clf.sample()
+	# 		if deterministic:
+	# 			classif = clf.mode()
+	# 		else:
+	# 			classif = clf.sample()
 
-		return classif, clf_proba
+	# 	return classif, clf_logits, clf_proba
 		
 
 
@@ -100,7 +118,7 @@ class myClassifier_with_CNNpretrained(nn.Module):
 
 
 class myNet_with_CNNpretrained(nn.Module):
-	def __init__(self, obs_shape, action_space, freeze_CNN=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
+	def __init__(self, obs_shape, action_space, freeze_CNN=True, complex_navigation=True, num_labels = 10, recurrent_policy=False, dataset=None, resnet=False, pretrained=False):
 		super(myNet_with_CNNpretrained, self).__init__()
 		self.dataset = dataset
 		if len(obs_shape) == 3: #our mnist case
@@ -113,9 +131,18 @@ class myNet_with_CNNpretrained(nn.Module):
 			num_outputs_row = action_space[0].n
 			num_outputs_col = action_space[1].n
 			num_outputs_done = action_space[2].n
-			self.dist_row = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
-			self.dist_col = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
-			self.dist_done = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
+			if complex_navigation:
+				self.dist_row = FC_navigation_head(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
+				self.dist_col = FC_navigation_head(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
+				self.dist_done = FC_navigation_head(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
+
+
+			else:
+				self.dist_row = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
+
+				self.dist_col = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
+				self.dist_done = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
+
 			self.dist = Categorical(num_outputs_row+num_outputs_col+num_outputs_done, 28*28*2)
 
 
@@ -124,8 +151,8 @@ class myNet_with_CNNpretrained(nn.Module):
 
 		if dataset in ['mnist', 'cifar10']:
 			num_labels = num_labels
-			self.clf = Categorical(self.base.output_size, num_labels)
-
+			# self.clf = Categorical(self.base.output_size, num_labels)
+			self.clf = myClassifier_with_CNNpretrained() # treat CNN as a blackbox 
 		self.state_size = self.base.state_size
 
 
@@ -163,17 +190,49 @@ class myNet_with_CNNpretrained(nn.Module):
 		# action_done_log_probs = dist_row.log_probs(action_done)
 
 		if self.dataset in img_env28_jump.IMG_ENVS:
-			clf = self.clf(actor_features)
-			clf_proba = clf.logits
-			if deterministic:
-				classif = clf.mode()
-			else:
-				classif = clf.sample()
+			# clf = self.clf(actor_features)
+			# clf_proba = clf.logits
+
+			log_softmax, softmax = self.clf(inputs[:,1:2,:,:])# treat CNN as a blackbox and output it directly as part of stopping criterion
+			classif = softmax.data.max(1, keepdim=True)[-1]#.item()
+
+			# if deterministic:
+			# 	# classif = clf.mode()
+			# else:
+			# 	classif = clf.sample()
 			
 			action = torch.cat([action_row, action_col, action_done, classif], 1)
+			
 			# print ('action_row', action_row)
 			# print ('action_col', action_col)
 			# print ('action_done', action_done)
 			# print ('classif', classif)
 
-		return action, Q_value, clf_proba, states #dist.logits = Q values
+		return action, Q_value, softmax, log_softmax, states #dist.logits = Q values
+
+
+
+class FC_navigation_head(nn.Module):
+	def __init__(self, num_input, num_output):
+		super(FC_navigation_head, self).__init__()
+		self.fc1 = nn.Linear(num_input, 320)
+		self.fc2 = nn.Linear(320, 160)
+		self.fc3 = nn.Linear(160, 80)
+		self.categorical = Categorical(80, num_output)
+
+	def forward(self, x):
+		x = F.relu(self.fc1(x))
+		x = F.relu(self.fc2(x))
+		x = F.relu(self.fc3(x))
+		x = self.categorical(x)
+		return x
+
+
+
+
+
+
+
+
+
+
