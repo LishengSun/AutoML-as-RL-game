@@ -93,9 +93,8 @@ def optimize_myNet(net, curr_label, optimizer, BATCH_SIZE=128, optimize_clf=Fals
 		inputs=state_batch.float(),
 		states=state_batch, masks=state_batch[1])
 	
-
-	state_action_values = Q_values_batch.gather(1, action_batch[:, 0].view(BATCH_SIZE,1))
-
+	
+	state_action_values = Q_values_batch.gather(1, action_batch[:,-1].view(BATCH_SIZE,1))
 	next_state_values = torch.zeros(BATCH_SIZE).to(device)
 	torch.zeros(BATCH_SIZE).to(device)
 	_, next_Q_values_batch, _, _, _= target_net.act(inputs=non_final_next_states.float(),states=non_final_next_states, masks=non_final_next_states[1])
@@ -240,8 +239,9 @@ if __name__ == '__main__':
 				rand = np.random.rand()
 				if rand < EPS:
 					actionS = np.array(
-						[np.random.choice(range(28)), np.random.choice(range(28)), np.random.choice(range(2)), np.random.choice(range(NUM_LABELS))])
-				action_row, action_col, action_done, class_pred = actionS
+						[np.random.choice(range(28)), np.random.choice(range(28)), np.random.choice(range(2)), \
+						np.random.choice(range(NUM_LABELS)), np.random.choice(range(28*28*2))])
+				action_row, action_col, action_done, class_pred, action_squeeze = actionS
 				observation, reward, done, info = env.step(actionS, clf_proba.detach().numpy()[0])
 
 				total_reward_i = reward + GAMMA*total_reward_i
@@ -254,6 +254,7 @@ if __name__ == '__main__':
 					loss_clf_i = loss_clf_i.item()
 					loss_dist_i = loss_dist_i.item()
 				except: # not enough examples in ReplayMemo
+
 					loss_total_i, loss_clf_i, loss_dist_i = 9999, 9999, 9999
 
 				if done:
@@ -336,7 +337,7 @@ if __name__ == '__main__':
 	# sns.tsplot(data=run_total_rewards, time=list(range(NUM_EPISODES)), ci=[68, 95], ax=plt.subplot(3, 1, 2), color='red')
 
 	plt.subplot(3, 1, 3)
-	plt.ylim(top=2)
+	plt.ylim(top=5)
 	plt.xlabel('Episode')
 	plt.ylabel('Loss Navigation')
 	# loss_classification_t = torch.tensor(loss_classification[0], dtype=torch.float)

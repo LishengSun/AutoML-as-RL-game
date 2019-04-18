@@ -8,7 +8,7 @@ import random
 import pdb
 
 
-from distributions import Categorical, DiagGaussian
+from distributions import Categorical, DiagGaussian, Raw_and_Categorical
 from collections import namedtuple
 
 import img_env28_jump
@@ -138,10 +138,10 @@ class myNet_with_CNNpretrained(nn.Module):
 
 
 			else:
-				self.dist_row = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
+				self.dist_row = Raw_and_Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_row)
 
-				self.dist_col = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
-				self.dist_done = Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
+				self.dist_col = Raw_and_Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_col)
+				self.dist_done = Raw_and_Categorical(self.base.output_size+obs_shape[1]*obs_shape[2], num_outputs_done)
 
 			self.dist = Categorical(num_outputs_row+num_outputs_col+num_outputs_done, 28*28*2)
 
@@ -163,16 +163,16 @@ class myNet_with_CNNpretrained(nn.Module):
 		actor_features = self.base(inputs[:,1:2,:,:])# only takes img as input to the pretrained CNN
 		# print ('actor_features.shape ', actor_features.shape)
 		# print ('inputs[:,0,:,:]', inputs[:,0,:,:].shape)
-		actor_features_with_location = torch.cat((actor_features, inputs[:,0,:,:].view(inputs.size(0), -1)), 1)
+		actor_features_with_location = torch.cat((F.relu(actor_features), inputs[:,0,:,:].view(inputs.size(0), -1)), 1)
 		# print ('actor_features_with_location', actor_features_with_location.shape)
-		dist_row = self.dist_row(actor_features_with_location)
-		dist_col = self.dist_col(actor_features_with_location)
-		dist_done = self.dist_done(actor_features_with_location)
-		# print ('dist_row: ', dist_row)
-		# print ('dist_row_logits: ', dist_row.logits)
-		dist = self.dist(torch.cat([dist_row.logits, dist_col.logits, dist_done.logits], 1))
-		# print ('dist: ', dist)
+		raw_row, dist_row = self.dist_row(actor_features_with_location)
+		raw_col, dist_col = self.dist_col(actor_features_with_location)
+		raw_done, dist_done = self.dist_done(actor_features_with_location)
+		# print ('raw_row', raw_row)
+		# dist = self.dist(F.relu(torch.cat([dist_row.logits, dist_col.probs, dist_done.probs], 1)))
+		dist = self.dist(torch.cat([F.relu(raw_row), F.relu(raw_col), F.relu(raw_done)], 1))
 		Q_value = dist.logits
+
 		# print ('Q value: ', Q_value)
 
 		
@@ -180,10 +180,12 @@ class myNet_with_CNNpretrained(nn.Module):
 			action_row = dist_row.mode()
 			action_col = dist_col.mode()
 			action_done = dist_done.mode()
+			action_squeeze = dist.mode()
 		else:
 			action_row = dist_row.sample()
 			action_col = dist_col.sample()
 			action_done = dist_done.sample()
+			action_squeeze = dist.sample()
 
 		# action_row_log_probs = dist_row.log_probs(action_row)
 		# action_col_log_probs = dist_row.log_probs(action_col)
@@ -201,12 +203,8 @@ class myNet_with_CNNpretrained(nn.Module):
 			# else:
 			# 	classif = clf.sample()
 			
-			action = torch.cat([action_row, action_col, action_done, classif], 1)
-			
-			# print ('action_row', action_row)
-			# print ('action_col', action_col)
-			# print ('action_done', action_done)
-			# print ('classif', classif)
+			action = torch.cat([action_row, action_col, action_done, classif, action_squeeze], 1)
+
 
 		return action, Q_value, softmax, log_softmax, states #dist.logits = Q values
 
@@ -221,6 +219,7 @@ class FC_navigation_head(nn.Module):
 		self.categorical = Categorical(80, num_output)
 
 	def forward(self, x):
+		
 		x = F.relu(self.fc1(x))
 		x = F.relu(self.fc2(x))
 		x = F.relu(self.fc3(x))
