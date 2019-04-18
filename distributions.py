@@ -46,6 +46,25 @@ class Categorical(nn.Module):
         return FixedCategorical(logits=x)
 
 
+class Raw_and_Categorical(nn.Module):
+    # same as Categorical, just expose the output of the linear layer
+    def __init__(self, num_inputs, num_outputs):
+        super(Raw_and_Categorical, self).__init__()
+
+        init_ = lambda m: init(m,
+              nn.init.orthogonal_,
+              lambda x: nn.init.constant_(x, 0),
+              gain=0.01)
+
+        self.linear = init_(nn.Linear(num_inputs, num_outputs))
+
+    def forward(self, x):
+        x = self.linear(x)
+        
+        return x, FixedCategorical(logits=x)
+
+
+
 class DiagGaussian(nn.Module):
     def __init__(self, num_inputs, num_outputs):
         super(DiagGaussian, self).__init__()
