@@ -15,11 +15,30 @@ from gym.spaces import Discrete, Box
 import torchvision.transforms as T
 from torchvision import datasets
 import matplotlib.pyplot as plt
+import math
+import torch.nn.functional as F
+import pdb
 
 
 CITYSCAPE = '/datasets01/cityscapes/112817/gtFine'
 IMG_ENVS = ['mnist', 'cifar10', 'cifar100', 'imagenet']
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def Hellinger_distance(P, Q):
+    """
+    compute the H distance between 2 proba distributions P and Q
+    P and Q tensors, of size (1, k)
+    1 = number of examples
+    k = len of each proba distribution
+
+    """
+    if Q.shape[1] == 1: # one-hot target
+        target = Q.item()
+        Q = torch.zeros((P.shape))
+        Q[:, target] = 1
+    H_distance = np.sum([(P[:,i]-Q[:,i])**2 for i in range(P.shape[1])]) 
+    H_distance = np.sqrt(H_distance) / np.sqrt(2)
+    return H_distance
 
 def get_data_loader(env_id, train=True):
     kwargs = {'num_workers': 0, 'pin_memory': True}
@@ -63,25 +82,27 @@ def get_data_loader(env_id, train=True):
 
 class ImgEnv(object):
     def __init__(self, dataset, train, max_steps, channels, window=5, num_labels=10):
-        # Jump action space has 28*28+1=785 actions: 
-        # if action<=784: move to (action//28, action%28)
-        # else: done
-        # self.action_space = Discrete(785)
-        self.action_space = [Discrete(28), Discrete(28), Discrete(2)]
-        self.observation_space = Box(low=0, high=1, shape=(channels, 28, 28))#shape=(channels, 32, 32))
+        # Jump action space has 28/window_size*28/window_size+1 actions: 
+        
         self.channels = channels
         self.data_loader = get_data_loader(dataset, train=train)
         self.window = window
         self.max_steps = max_steps
         self.num_labels = num_labels
+        self.num_row_choices = math.ceil(28/self.window)
+        self.num_col_choices = math.ceil(28/self.window)
+
+        # self.action_space = [Discrete(self.num_row_choices), Discrete(self.num_col_choices), Discrete(2)]
+        self.action_space = Discrete(self.num_row_choices*self.num_col_choices + 1) # +1 for done
+        self.observation_space = Box(low=0, high=1, shape=(channels, 28, 28))#shape=(channels, 32, 32))
+        
 
     def seed(self, seed):
         np.random.seed(seed)
 
     def reset(self, NEXT=True):
-        if NEXT:
+        if NEXT: # whether switch to next image
             self.curr_img, self.curr_label = next(iter(self.data_loader))
-            # print (self.curr_img.shape)
             while self.curr_label >= self.num_labels:
                 self.curr_img, self.curr_label = next(iter(self.data_loader))
             self.curr_img = self.curr_img.squeeze(0)
@@ -100,37 +121,23 @@ class ImgEnv(object):
         self.num_steps = 0
         return self.state
 
-    def step(self, action, clf_softmax):
-        if action[2] == 1 and clf_softmax[action[3]] > 0.75:
-            print ('before: action = ', action)
-            print ('before: clf_softmax[action[3]]', clf_softmax[action[3]])
+    def step(self, action, curr_clf_softmax, prev_clf_softmax):
+        # while len(self.curr_label.shape) < 2: #should be (n, 1), n=number of exampels
+        #     self.curr_label = self.curr_label.unsqueeze_(dim=0)
+
+        # if agent chooses to done with high confidence
+        if action[0] == self.action_space.n and curr_clf_softmax.cpu().detach().numpy()[0][action[-1]] > 0.75:
             done = True
-        elif action[2] > 1 or action[2] < 0:
-            print("Done Action out of bounds!")
-            return
         else:
             done = False
-            if action[0] < 28: # row move
-                self.pos[0] = action[0]
-            else: 
-                print("Row Action out of bounds!")
-                return
-            if action[1] < 28: # col move
-                self.pos[1] = action[1]
-            else: 
-                print("Column Action out of bounds!")
-                return
             
-        # if action[0] <= 784: # move
-        #     self.pos[0] = action[0] // 28# row move
-        #     self.pos[1] = action[0] % 28# col move
+            if action[0] <= self.num_row_choices * self.num_col_choices: # move
+                self.pos[0] = min(self.curr_img.shape[1], self.window*(action[0] // self.num_col_choices))# row move
+                self.pos[1] = min(self.curr_img.shape[2], self.window*(action[0] % self.num_col_choices))# col move
 
-        # elif action[0] == 785:# Ready to predict, go nowhere
-        #     done = True
-
-        # else:
-        #     print("Action out of bounds!")
-        #     return
+            else:
+                print("Action out of bounds!")
+                return
         self.state[0, :, :] = np.zeros(
             (1, self.curr_img.shape[1], self.curr_img.shape[2]))
         self.state[0, self.pos[0]:self.pos[0]+self.window, self.pos[1]:self.pos[1]+self.window] = 1 # location channel
@@ -140,13 +147,24 @@ class ImgEnv(object):
         self.num_steps += 1
         if not done: 
             done = self.num_steps >= self.max_steps
+
         
-        if done and action[3] == self.curr_label.item(): # change 3 to 1 if flatten images
+        if done and action[-1] == self.curr_label.item(): 
             reward = 1
-        elif done and action[3] != self.curr_label.item():
+
+        elif done and action[-1] != self.curr_label.item():
             reward = -10
-        else:
-            reward = - 1 / self.max_steps
+        else: # reward for each step = cost_exploration + improvement(curr_pred_softmax, prev_pred_softmax)
+            # curr_clf_loss = Hellinger_distance(curr_clf_softmax, self.curr_label.to(device))
+            # prev_clf_loss = Hellinger_distance(prev_clf_softmax, self.curr_label.to(device))
+            # pdb.set_trace()
+            curr_clf_loss = F.nll_loss(torch.log(curr_clf_softmax), self.curr_label.unsqueeze(dim=0)).item()
+            prev_clf_loss = F.nll_loss(torch.log(prev_clf_softmax), self.curr_label.unsqueeze(dim=0)).item()
+            # print ('curr_clf_loss', curr_clf_loss)
+            # print ('prev_clf_loss', prev_clf_loss)
+            clf_improvement = -(curr_clf_loss - prev_clf_loss)
+            reward = - 0.5*( 1 / self.max_steps) + 0.5*(clf_improvement / self.max_steps)
+   
         return self.state, reward, done, {}
 
     def get_current_obs(self):
